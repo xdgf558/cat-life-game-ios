@@ -1,0 +1,22 @@
+# Large source/runtime media and historical evidence are downloaded with Git LFS.
+# Plain Swift, source metadata and small QA summaries stay reviewable in Git.
+**/*.png filter=lfs diff=lfs merge=lfs -text
+**/*.jpg filter=lfs diff=lfs merge=lfs -text
+**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+**/*.mp4 filter=lfs diff=lfs merge=lfs -text
+**/*.caf filter=lfs diff=lfs merge=lfs -text
+docs/**/*.png filter=lfs diff=lfs merge=lfs -text
+docs/**/*.jpg filter=lfs diff=lfs merge=lfs -text
+docs/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+docs/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
+docs/**/*.caf filter=lfs diff=lfs merge=lfs -text
+QA/**/*.log filter=lfs diff=lfs merge=lfs -text
+QA/**/*.txt filter=lfs diff=lfs merge=lfs -text
+QA/player-build19/initial-pro/manifest.json filter=lfs diff=lfs merge=lfs -text
+QA/player-build19/initial-se/manifest.json filter=lfs diff=lfs merge=lfs -text
+QA/player-build19/second-pro/manifest.json filter=lfs diff=lfs merge=lfs -text
+QA/pr-review/sanitization.json filter=lfs diff=lfs merge=lfs -text
+QA/verification.json filter=lfs diff=lfs merge=lfs -text
+# Collapse historical evidence; new compact repair notes remain normal text.
+QA/** linguist-generated=true -whitespace
+ArtSource/**/*.prompt.txt -whitespace
