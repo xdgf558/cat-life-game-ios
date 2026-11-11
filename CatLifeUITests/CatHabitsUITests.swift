@@ -8,6 +8,8 @@ extension RoomHomeUITests {
         app.launchArguments = arguments(reset: true) + ["--rest-test"]
         launchAndEnterHome(app)
         _ = try beginFurnitureRest("floorCushion", in: app)
+        waitForElement("homeRestStatus", in: app)
+        attachScreenshot(app, named: "Companion design 68 - C4 actual committed rest and progress")
         waitForElement("habitCornerOffer", in: app, timeout: 20)
         tapAnimationControl("habitCornerLater", in: app)
         _ = waitForFurniture(in: app, description: "first observation ends naturally",
@@ -102,11 +104,15 @@ extension RoomHomeUITests {
         tapAnimationControl("tabHome", in: app)
         openHabitPlay(in: app)
         completeHabitTutorial(in: app, study: true)
-        XCTAssertFalse(element("catHabitsSection", in: app).exists)
+        XCTAssertFalse(element("playTogetherResponses", in: app).exists,
+                       "Observation mode must still hide the new response summary until Continue.")
         XCTAssertFalse(element("catMemory_firstResponse", in: app).exists)
         attachScreenshot(app, named: "Habits 63 — ask the player before revealing conclusions")
         tapAnimationControl("playTogetherContinue", in: app)
         waitForElement("playTogetherResult", in: app)
+        waitForElement("playTogetherResponses", in: app)
+        XCTAssertFalse(element("catHabitsSection", in: app).exists,
+                       "The activity summary must not repeat the complete cat profile.")
         waitForObservedValue("habitPlayProgress", "1/2", in: app)
         tapAnimationControl("playTogetherFinishButton", in: app)
         tapAnimationControl("settingsButton", in: app)
@@ -175,7 +181,7 @@ extension RoomHomeUITests {
     func testHabitTapControlsAndMemoriesSupportThreeLanguagesAtLargestType() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        for (language, locale, title) in [("zh-Hans", "zh_CN", "一起玩"), ("zh-Hant", "zh_TW", "一起玩"), ("en", "en_US", "Play Together")] {
+        for (language, locale, title) in [("zh-Hans", "zh_CN", "和小橘一起玩"), ("zh-Hant", "zh_TW", "和小橘一起玩"), ("en", "en_US", "Play with Sunny")] {
             app.terminate()
             app.launchArguments = ["--ui-testing", "--skip-onboarding", "--reset-ui-test-save",
                 "-AppleLanguages", "(\(language))", "-AppleLocale", locale, "--reduce-motion-test",
@@ -212,6 +218,7 @@ extension RoomHomeUITests {
         let choice = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label IN %@",
             "playTogetherChoice", ["一起玩", "Play Together"])).firstMatch
         XCTAssertTrue(choice.waitForExistence(timeout: 5))
+        scrollPage("playChoicesSheet68", to: "playTogetherChoice", allowDisabled: false, maximumDrags: 16, in: app)
         choice.tap()
     }
 
@@ -281,6 +288,8 @@ extension RoomHomeUITests {
             waitForElement("playTogetherResult", in: app)
             waitForObservedValue("playTogetherToyCost", "1", in: app)
             waitForObservedValue("habitPlayProgress", "2/2", in: app)
+            scrollCareerPage("playTogetherScroll", to: "playTogetherResponses", in: app)
+            attachScreenshot(app, named: "Companion design 68 - P7 saved confirmed preference and actual receipt")
             tapAnimationControl("playTogetherFinishButton", in: app)
             waitForObservedValue("toyCount", String(remaining), in: app)
             waitForObservedValue("goldCount", "200", in: app)

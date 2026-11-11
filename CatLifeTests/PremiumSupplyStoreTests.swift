@@ -58,13 +58,13 @@ final class PremiumSupplyStoreTests: XCTestCase {
                         "roomView.current", "roomView.angle.left", "roomView.angle.front", "roomView.angle.right",
                         "roomView.whole", "roomView.close", "roomView.turnLeft", "roomView.turnRight",
                         "roomView.showWhole", "roomView.showClose", "releases.62.title", "releases.62.body",
-                        "releases.64.title", "releases.64.body", "releases.65.title", "releases.65.body", "releases.66.title", "releases.66.body"] {
+                        "releases.64.title", "releases.64.body", "releases.65.title", "releases.65.body", "releases.66.title", "releases.66.body", "releases.68.title", "releases.68.body"] {
                 XCTAssertNotNil(dictionary[key], "Each language must register \(key) without relying on a fallback.")
             }
         }
-        XCTAssertEqual(AppVersion.current.version, "0.22.0")
-        XCTAssertEqual(AppVersion.current.build, "67")
-        XCTAssertEqual(AppRelease.recent.map(\.build), [67, 66, 65])
+        XCTAssertEqual(AppVersion.current.version, "0.23.0")
+        XCTAssertEqual(AppVersion.current.build, "68")
+        XCTAssertEqual(AppRelease.recent.map(\.build), [68, 67, 66])
     }
 
     @MainActor

@@ -49,6 +49,55 @@ final class RoomResidentCats {
         for actor in actors.values { actor.setIdleEnabled(enabled && !actor.isPerforming && !actor.isHidden) }
     }
 
+    /// Layout previews may cover a cat's old tile. Plan its short evacuation
+    /// against the previous floor, accepting only a clear endpoint in the new one.
+    func yieldForArrangement68(from previous: RoomFloor, to next: RoomFloor, bowl: CGPoint, active: CGPoint,
+                               previousBowl: CGPoint? = nil, completion: @escaping @MainActor (Bool) -> Void = { _ in }) {
+        let positions = actors.filter { !$0.value.isHidden }.mapValues(\.position)
+        guard !positions.isEmpty else { completion(true); return }
+        let previousIDs = preparedIDs
+        invalidate()
+        preparedIDs = previousIDs
+        let ticket = revision
+        let width = visualWidth
+        isBusy = true; isPreparing = true
+        let calculation = Task.detached(priority: .userInitiated) {
+            var occupied = positions
+            var paths: [(String, [CGPoint])] = []
+            var allSafe = true
+            for id in positions.keys.sorted() {
+                guard !Task.isCancelled, let start = positions[id] else { return (paths, false) }
+                let others = occupied.filter { $0.key != id }.values.map {
+                    RoomResidentPlanner.obstacle(at: $0, width: width)
+                } + [RoomResidentPlanner.obstacle(at: active, width: width)]
+                let destination = next.addingObstacles(others).navigator(bowlAt: bowl)
+                guard !destination.isWalkable(start) else { continue }
+                let original = previous.addingObstacles(others).navigator(bowlAt: previousBowl ?? bowl, precomputeGrid: false)
+                var found = false
+                for point in destination.walkablePoints.sorted(by: {
+                    hypot($0.x - start.x, $0.y - start.y) < hypot($1.x - start.x, $1.y - start.y)
+                }) {
+                    guard let route = original.route(from: start, to: point) else { continue }
+                    paths.append((id, route)); occupied[id] = point; found = true; break
+                }
+                if !found { allSafe = false }
+            }
+            return (paths, allSafe)
+        }
+        worker = Task { [weak self] in
+            let (paths, allSafe) = await withTaskCancellationHandler { await calculation.value } onCancel: { calculation.cancel() }
+            guard let self, self.revision == ticket, !Task.isCancelled else { return }
+            self.worker = nil; self.isPreparing = false
+            @MainActor func move(_ index: Int) {
+                guard self.revision == ticket else { return }
+                guard index < paths.count else { self.isBusy = false; completion(allSafe); return }
+                guard let actor = self.actors[paths[index].0] else { move(index + 1); return }
+                actor.stroll(along: paths[index].1) { move(index + 1) }
+            }
+            move(0)
+        }
+    }
+
     /// Exchange render roles at their actual positions, keeping the scene's care actor stable.
     func exchangeActive(from old: CatState?, to new: CatState?, at position: CGPoint) -> CGPoint? {
         guard let old, let new, let replacement = actors[new.id], !replacement.isHidden else {

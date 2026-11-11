@@ -111,18 +111,26 @@ final class CatActor: SKNode {
 
     /// These are visible paw landmarks, not the navigation footprint's center.
     /// Return nil for sleep/walk poses where no step landmark was registered.
-    var frontPawContact: CGPoint? { stepPawContact(front: true) }
-    var rearPawContact: CGPoint? { stepPawContact(front: false) }
+    var frontPawContact: CGPoint? {
+        guard let parent else { return nil }
+        return stepPawContact(front: true, to: parent)
+    }
+    var rearPawContact: CGPoint? {
+        guard let parent else { return nil }
+        return stepPawContact(front: false, to: parent)
+    }
 
     /// Ground-space audit point; visual elevation never changes the route.
     var restContactPoint: CGPoint? { isEnteringFurniture ? position : nil }
     var restVisualContactPoint: CGPoint? {
         guard isEnteringFurniture, let parent else { return nil }
-        return pose.convert(.zero, to: parent)
+        return pose.convert(CGPoint.zero, to: parent)
     }
 
-    private func stepPawContact(front: Bool) -> CGPoint? {
-        guard isEnteringFurniture, currentClip == .step, let parent else { return nil }
+#endif
+
+    private func stepPawContact(front: Bool, to node: SKNode) -> CGPoint? {
+        guard isEnteringFurniture, currentClip == .step else { return nil }
         let sequence = art.sequence(.step)
         let frame = sequence.frames[min(currentFrameIndex, sequence.frames.count - 1)]
         guard let landmark = front ? frame.frontPaw : frame.rearPaw else { return nil }
@@ -130,10 +138,40 @@ final class CatActor: SKNode {
         let warp = front ? stepFrontWarp : stepRearWarp
         let local = CGPoint(x: (landmark.x - frame.bounds.midX) * unit + warp.x,
                             y: (frame.bounds.maxY - landmark.y) * unit + warp.y)
-        return sprite.convert(local, to: parent)
+        return sprite.convert(local, to: node)
     }
 
-#endif
+    var renderSprite68: SKSpriteNode { sprite }
+
+    /// Immutable actor-local landmarks used by the mesh presentation adapter.
+    var artworkLandmarks68: CatArtworkLandmarks68 {
+        var step: CatArtworkStepLandmarks68?
+        if isEnteringFurniture, currentClip == .step,
+           let front = stepPawContact(front: true, to: self),
+           let rear = stepPawContact(front: false, to: self) {
+            let sequence = art.sequence(.step)
+            let frame = sequence.frames[min(currentFrameIndex, sequence.frames.count - 1)]
+            if let f = frame.frontPaw, let r = frame.rearPaw {
+                let origin = sprite.convert(CGPoint.zero, to: self)
+                let x = sprite.convert(CGPoint(x: 1, y: 0), to: self)
+                let y = sprite.convert(CGPoint(x: 0, y: 1), to: self)
+                step = CatArtworkStepLandmarks68(frame: currentFrameIndex, frontPaw: front, rearPaw: rear,
+                    frontUV: CGPoint(x: (f.x - frame.bounds.minX) / frame.bounds.width, y: (frame.bounds.maxY - f.y) / frame.bounds.height),
+                    rearUV: CGPoint(x: (r.x - frame.bounds.minX) / frame.bounds.width, y: (frame.bounds.maxY - r.y) / frame.bounds.height),
+                    spriteSize: sprite.size, spriteXAxis: CGPoint(x: x.x - origin.x, y: x.y - origin.y),
+                    spriteYAxis: CGPoint(x: y.x - origin.x, y: y.y - origin.y), spriteID: ObjectIdentifier(sprite))
+            }
+        }
+        let mealFrame = isDockingForMeal && currentClip == .meal ? currentFrameIndex : nil
+        let mouth = mealFrame.flatMap { registeredMealContact(frame: $0, to: self) }
+        var mean: CGPoint?
+        if mealFrame != nil, let a = registeredMealContact(frame: 2, to: self),
+           let b = registeredMealContact(frame: 3, to: self) {
+            mean = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        }
+        return CatArtworkLandmarks68(poseOrigin: pose.convert(CGPoint.zero, to: self), visualWidth: visualWidth,
+                                    mealFrame: mealFrame, mouth: mouth, meanMouth: mean, step: step)
+    }
 
     private func stepPawHeight(front: Bool) -> CGFloat? {
         guard currentClip == .step else { return nil }
@@ -175,13 +213,16 @@ final class CatActor: SKNode {
     }
 
 #if DEBUG
-    /// Pixel-measured lower lip/tongue landmarks of the registered meal atlas.
-    /// Transform from pose coordinates so facing, actor position and any parent
-    /// transform are reflected in the contact point used by the room's audit.
+    /// The audit uses the same production landmark as mesh mouth alignment.
     var currentMealContact: CGPoint? {
         guard isDockingForMeal, currentClip == .meal, let parent else { return nil }
+        return registeredMealContact(frame: currentFrameIndex, to: parent)
+    }
+#endif
+
+    private func registeredMealContact(frame: Int, to node: SKNode) -> CGPoint? {
         let offset: CGPoint
-        switch (appearance, currentFrameIndex) {
+        switch (appearance, frame) {
         case (.orange, 2): offset = CGPoint(x: 0.3791 * visualWidth, y: 0.1472 * visualWidth)
         case (.orange, 3): offset = CGPoint(x: 0.3084 * visualWidth, y: 0.1472 * visualWidth)
         case (.cow, 2): offset = CGPoint(x: 0.356148 * visualWidth, y: 0.140313 * visualWidth)
@@ -194,10 +235,8 @@ final class CatActor: SKNode {
         case (.silver, 3): offset = CGPoint(x: 0.289271 * visualWidth, y: 0.081714 * visualWidth)
         default: return nil
         }
-        return pose.convert(offset, to: parent)
+        return pose.convert(offset, to: node)
     }
-
-#endif
 
     var reducedMotion = false {
         didSet {

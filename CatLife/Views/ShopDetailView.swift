@@ -31,12 +31,13 @@ struct ShopDetailView: View {
                 if let goal = CompanionshipPresentation.shopGoal(for: product, cat: store.cat) {
                     VStack(alignment: .leading, spacing: 7) {
                         Label(GameStrings.text("habit67.shop.goalTitle"), systemImage: "heart.fill")
-                            .font(.subheadline.weight(.heavy)).foregroundStyle(RoomTheme.darkMint)
-                        Text(goal).font(.subheadline).foregroundStyle(RoomTheme.secondary)
+                            .font(.subheadline.weight(.heavy)).foregroundStyle(RoomTheme.friendshipDeep)
+                        Text(styledGoal(goal)).font(.subheadline).foregroundStyle(RoomTheme.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoomTheme.paleMint.opacity(0.45), in: RoundedRectangle(cornerRadius: 20))
+                    .background(RoomTheme.friendshipPaper, in: RoundedRectangle(cornerRadius: 20))
+                    .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(RoomTheme.friendshipBorder, lineWidth: 1.5))
                     .accessibilityElement(children: .combine).accessibilityIdentifier("shopHabitGoal")
                 }
                 VStack(alignment: .leading, spacing: 14) {
@@ -106,6 +107,19 @@ struct ShopDetailView: View {
                     .foregroundStyle(RoomTheme.darkMint).accessibilityIdentifier("closeSheetButton")
             }
         }
+    }
+
+    private func styledGoal(_ body: String) -> AttributedString {
+        var text = AttributedString(body)
+        let note = GameStrings.text("design68.shop.noExtraPurchase")
+        if let range = text.range(of: note) {
+            text[range].font = .subheadline.weight(.heavy)
+        } else {
+            var emphasis = AttributedString("\n" + note)
+            emphasis.font = .subheadline.weight(.heavy)
+            text.append(emphasis)
+        }
+        return text
     }
 
     private var unavailableMessage: String? {

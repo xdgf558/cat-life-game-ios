@@ -71,12 +71,7 @@ extension RoomScene {
         roomPresentation.camera.cancelGestures()
     }
     func previewFloorPoint(_ point: CGPoint) -> CGPoint {
-        guard let floor, let placementNavigation else { return selectedNode.position }
-        if selectedFurnitureID != nil {
-            return placementNavigation.nearestWalkable(to: point) ?? selectedNode.position
-        }
-        guard let safe = placementNavigation.nearestWalkable(to: floor.bowlGround(at: point)) else { return bowl.position }
-        return CGPoint(x: safe.x, y: safe.y - floor.bowlGroundOffset)
+        previewArrangementPoint68(point)
     }
 
     func beginTouches(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -98,6 +93,8 @@ extension RoomScene {
         if diagnostics.furnitureTesting { diagnostics.lastRestInput = "began:\(point.x),\(point.y)" }
 #endif
         guard editing, activeRest == nil else { return }
+        guard !arrangementYielding68, arrangement68.pendingRequest == nil,
+              arrangement68.worker == nil || newPlacementID != nil else { return }
         guard let hit = roomPresentation.hit(screen: screen, editing: true) else { return }
         let chosenID: String? = hit == "bowl" ? nil : String(hit.dropFirst("furniture-".count))
         // A pending new item can be grabbed again, but a second item must wait
@@ -107,13 +104,17 @@ extension RoomScene {
             if isPlacementPending { cancelPlacementPreview() }
             selectedFurnitureID = chosenID
             placementPrepared = false
-            onFurnitureSelected?(chosenID)
         }
+        arrangement68.bowlSelected = chosenID == nil
+        onFurnitureSelected?(chosenID)
         placementRevision += 1
         placementTask?.cancel()
         placementTask = nil
+        arrangement68.worker?.cancel()
+        arrangement68.worker = nil
         preparePlacementNavigation()
         dragging = true
+        beginArrangementGesture68()
 #if DEBUG
         diagnostics.furnitureDragPreviewSamples = 0
         diagnostics.furnitureDragPreviewPoint = nil
@@ -189,7 +190,10 @@ extension RoomScene {
                newPlacementID == nil {
                 selectedNode.position = selectedFurnitureID.flatMap { furnitureWorld.center($0) } ?? committedBowlPosition
                 setPlacementPending(false)
+                preserveUnmovedArrangementIssue68(arrangement68.gestureIssues[selectedFurnitureID ?? "bowl"])
+                endArrangementGesture68()
                 updateSelection()
+                focusArrangementSelection68()
 #if DEBUG
                 publishFurnitureStatus()
 #endif
@@ -215,7 +219,7 @@ extension RoomScene {
             if canInspectResidents { onResidentTapped?(String(hit.dropFirst("resident-".count))) }
         } else {
             onBackgroundTapped?()
-            if let hit, hit.hasPrefix("furniture-") { visitFurniture(String(hit.dropFirst("furniture-".count))) }
+            if let hit, hit.hasPrefix("furniture-") { requestFurnitureRest68(String(hit.dropFirst("furniture-".count))) }
         }
     }
 

@@ -41,6 +41,8 @@ extension RoomHomeUITests {
         continueAfterFailure = false
         let app = launchFurnitureHome()
         tapAnimationControl("homeDecorateButton", in: app)
+        tapAnimationControl("layoutTrayToggle", in: app)
+        waitForObservedValue("layoutTrayToggle", "collapsed", in: app)
         let editing = waitForFurniture(in: app, description: "furniture editing to open",
                                        matching: { $0.phase == "editing" && !$0.pending })
         let originalCabinet = try XCTUnwrap(editing.items.first { $0.id == "cabinet" })
@@ -52,45 +54,70 @@ extension RoomHomeUITests {
         var moved = editing
         for target in targets {
             let cabinet = try XCTUnwrap(moved.items.first { $0.id == "cabinet" })
-            moved = dragFurniture(cabinet, to: target, in: app)
+            let canvas = element("roomScene", in: app)
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: cabinet.x, dy: cabinet.y - 0.02))
+                .press(forDuration: 0.15, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: target.dx, dy: target.dy - 0.02)),
+                       withVelocity: .slow, thenHoldForDuration: 0)
+            moved = waitForFurniture(in: app, description: "the cabinet drag finishes with its actual valid or invalid preview") {
+                !$0.pending && $0.selected == "cabinet"
+            }
             let placed = try XCTUnwrap(moved.items.first { $0.id == "cabinet" })
-            if hypot(placed.x - originalCabinet.x, placed.y - originalCabinet.y) > 0.02 { break }
+            if hypot(placed.x - originalCabinet.x, placed.y - originalCabinet.y) > 0.02,
+               element("layoutDoneButton", in: app).isEnabled { break }
         }
         let movedCabinet = try XCTUnwrap(moved.items.first { $0.id == "cabinet" })
         XCTAssertGreaterThan(hypot(movedCabinet.x - originalCabinet.x, movedCabinet.y - originalCabinet.y), 0.02,
                              "A real cabinet drag must reach a different safe location.")
-        let movedSource = artworkCoordinate(forRoomCoordinate: movedCabinet.position, in: app)
+        XCTAssertTrue(element("layoutDoneButton", in: app).isEnabled, "At least one real drag must reach a changed, validated position.")
+        let movedWorldX = try XCTUnwrap(movedCabinet.worldX), movedWorldY = try XCTUnwrap(movedCabinet.worldY)
         attachScreenshot(app, named: "Furniture — cabinet dragged to a new validated floor location")
         tapAnimationControl("layoutDoneButton", in: app)
         _ = waitForFurniture(in: app, description: "cabinet layout to save",
                              matching: { $0.phase == "idle" && !$0.pending })
         let restored = relaunchFurnitureHome(app)
         let restoredCabinet = try XCTUnwrap(restored.items.first { $0.id == "cabinet" })
-        let restoredSource = artworkCoordinate(forRoomCoordinate: restoredCabinet.position, in: app)
-        XCTAssertEqual(restoredSource.dx, movedSource.dx, accuracy: 0.008)
-        XCTAssertEqual(restoredSource.dy, movedSource.dy, accuracy: 0.008,
-                       "The moved cabinet must survive a cold launch in artwork coordinates.")
+        XCTAssertEqual(try XCTUnwrap(restoredCabinet.worldX), movedWorldX, accuracy: 0.003)
+        XCTAssertEqual(try XCTUnwrap(restoredCabinet.worldY), movedWorldY, accuracy: 0.003,
+                       "The moved cabinet must survive a cold launch in world coordinates.")
         let savedWall = try XCTUnwrap(restored.items.first { $0.id == "wallFlower" })
-        let savedWallSource = artworkCoordinate(forRoomCoordinate: savedWall.position, in: app)
+        let savedWallX = try XCTUnwrap(savedWall.worldX), savedWallY = try XCTUnwrap(savedWall.worldY)
 
         tapAnimationControl("homeDecorateButton", in: app)
         let wallEditing = waitForFurniture(in: app, description: "wall picture editing to open",
                                            matching: { $0.phase == "editing" && !$0.pending })
         let flower = try XCTUnwrap(wallEditing.items.first { $0.id == "wallFlower" })
-        let floorSource = CGVector(dx: 0.62, dy: 0.76)
-        let constrained = dragFurniture(flower, to: roomCoordinate(forArtworkCoordinate: floorSource, in: app), in: app)
-        let wallPicture = try XCTUnwrap(constrained.items.first { $0.id == "wallFlower" })
-        let wallSource = artworkCoordinate(forRoomCoordinate: wallPicture.position, in: app)
-        XCTAssertLessThan(wallSource.dy, 0.46,
-                          "Wall art dragged toward the floor must remain within the wall region.")
-        XCTAssertGreaterThan(hypot(wallSource.dx - floorSource.dx, wallSource.dy - floorSource.dy), 0.15,
-                             "The picture must not accept its requested floor coordinate.")
-        attachScreenshot(app, named: "Furniture — wall picture remains on the wall after a floor drop")
-
+        if element("layoutTrayToggle", in: app).value as? String == "expanded" {
+            tapAnimationControl("layoutTrayToggle", in: app)
+            waitForObservedValue("layoutTrayToggle", "collapsed", in: app)
+        }
+        let currentWall = try XCTUnwrap(furnitureState(in: app).items.first { $0.id == flower.id })
+        let floorTarget = furnitureState(in: app).bowl.position
+        let canvas = element("roomScene", in: app)
+        canvas.coordinate(withNormalizedOffset: currentWall.position)
+            .press(forDuration: 0.15, thenDragTo: canvas.coordinate(withNormalizedOffset: floorTarget),
+                   withVelocity: .slow, thenHoldForDuration: 0)
+        _ = waitForFurniture(in: app, description: "a wall item released on the floor remains invalid instead of snapping back") {
+            !$0.pending && $0.selected == "wallFlower" && !self.element("layoutDoneButton", in: app).isEnabled
+        }
+        tapAnimationControl("layoutTrayToggle", in: app)
+        waitForObservedValue("layoutTrayToggle", "expanded", in: app)
+        scrollPage("arrangementPanelScroll68", to: "arrangementInvalidReason68", allowDisabled: true,
+                   maximumDrags: 12, requiresHitPoint: false, in: app)
+        XCTAssertFalse(element("layoutDoneButton", in: app).isEnabled)
+        XCTAssertFalse(element("layoutConfirmPlacement68", in: app).isEnabled)
+        attachScreenshot(app, named: "Furniture — raw red wall preview cannot be saved")
+        tapAnimationControl("layoutTrayToggle", in: app)
+        waitForObservedValue("layoutTrayToggle", "collapsed", in: app)
         _ = try selectFurniture("cabinet", in: app)
+        tapAnimationControl("layoutTrayToggle", in: app)
+        waitForObservedValue("layoutTrayToggle", "expanded", in: app)
+        scrollPage("arrangementPanelScroll68", to: "storeFurnitureButton", allowDisabled: false, maximumDrags: 12, in: app)
         tapAnimationControl("storeFurnitureButton", in: app)
-        _ = waitForFurniture(in: app, description: "cabinet removed from the room draft",
-                             matching: { !$0.pending && !$0.items.contains { $0.id == "cabinet" } })
+        _ = waitForFurniture(in: app, description: "cabinet removed only from the invalid room draft") {
+            !$0.pending && !$0.items.contains { $0.id == "cabinet" }
+        }
+        XCTAssertFalse(element("layoutDoneButton", in: app).isEnabled, "Storing a different item must not erase the wall error.")
+        scrollPage("arrangementPanelScroll68", to: "furnitureInventoryButton", allowDisabled: false, maximumDrags: 12, in: app)
         tapAnimationControl("furnitureInventoryButton", in: app)
         waitForObservedValue("inventoryStoredFurnitureCount", "1", in: app)
         waitForObservedValue("inventoryPlacedFurnitureCount", "8", in: app)
@@ -103,13 +130,18 @@ extension RoomHomeUITests {
         let cancelled = waitForFurniture(in: app, description: "cancelled furniture draft restored",
                                          matching: { $0.phase == "idle" && !$0.pending && $0.items.count == 9 })
         let returnedCabinet = try XCTUnwrap(cancelled.items.first { $0.id == "cabinet" })
-        let returnedSource = artworkCoordinate(forRoomCoordinate: returnedCabinet.position, in: app)
-        XCTAssertEqual(returnedSource.dx, movedSource.dx, accuracy: 0.008)
-        XCTAssertEqual(returnedSource.dy, movedSource.dy, accuracy: 0.008)
+        XCTAssertEqual(try XCTUnwrap(returnedCabinet.worldX), movedWorldX, accuracy: 0.003)
+        XCTAssertEqual(try XCTUnwrap(returnedCabinet.worldY), movedWorldY, accuracy: 0.003)
         let returnedWall = try XCTUnwrap(cancelled.items.first { $0.id == "wallFlower" })
-        let returnedWallSource = artworkCoordinate(forRoomCoordinate: returnedWall.position, in: app)
-        XCTAssertEqual(returnedWallSource.dx, savedWallSource.dx, accuracy: 0.008)
-        XCTAssertEqual(returnedWallSource.dy, savedWallSource.dy, accuracy: 0.008)
+        XCTAssertEqual(try XCTUnwrap(returnedWall.worldX), savedWallX, accuracy: 0.003)
+        XCTAssertEqual(try XCTUnwrap(returnedWall.worldY), savedWallY, accuracy: 0.003)
+        let cold = relaunchFurnitureHome(app)
+        let diskWall = try XCTUnwrap(cold.items.first { $0.id == "wallFlower" })
+        XCTAssertEqual(try XCTUnwrap(diskWall.worldX), savedWallX, accuracy: 0.003)
+        XCTAssertEqual(try XCTUnwrap(diskWall.worldY), savedWallY, accuracy: 0.003)
+        let diskCabinet = try XCTUnwrap(cold.items.first { $0.id == "cabinet" })
+        XCTAssertEqual(try XCTUnwrap(diskCabinet.worldX), movedWorldX, accuracy: 0.003)
+        XCTAssertEqual(try XCTUnwrap(diskCabinet.worldY), movedWorldY, accuracy: 0.003)
         tapAnimationControl("tabInventory", in: app)
         scrollCareerPage("destinationScroll", to: "inventoryFurnitureTab", in: app)
         tapAnimationControl("inventoryFurnitureTab", in: app)

@@ -8,11 +8,16 @@ final class CatPlayTogetherController {
     let session: CatPlaySession
     let scene: CatPlayTogetherScene
     let generation: UUID
+    let initialMemoryKinds: Set<CatMemoryKind>
     private(set) var phase = "watching"
     private(set) var remaining: Double
     private(set) var working = false
     private(set) var failed = false
     private(set) var ending = false
+    private(set) var speedKind: CatPlayInputKind = .still
+    private(set) var activeRhythm: CatPlayRhythm?
+    private(set) var hasDragged = false
+    private(set) var demonstrating = false
     var continuedStudy = false
     @ObservationIgnored private var queue: [CatPlayInputReport] = []
     @ObservationIgnored private var inputTask: Task<Void, Never>?
@@ -23,6 +28,7 @@ final class CatPlayTogetherController {
 
     init(store: GameStore, session: CatPlaySession) {
         self.store = store; self.session = session; generation = store.saveSceneGeneration
+        initialMemoryKinds = Set(store.snapshot?.cats.first { $0.id == session.catID }?.habits.memories.map(\.kind) ?? [])
         let remaining = max(0, min(20, session.endsAt.timeIntervalSince(max(Date(), store.snapshot?.meta.lastSyncAt ?? Date()))))
         self.remaining = remaining
         deadline = ProcessInfo.processInfo.systemUptime + remaining
@@ -49,13 +55,15 @@ final class CatPlayTogetherController {
     }
 
     func tick() {
+        speedKind = scene.feedbackKind; activeRhythm = scene.activeRhythm
+        hasDragged = scene.hasDragged; demonstrating = scene.isDemonstrating
         let next = max(0, deadline - ProcessInfo.processInfo.systemUptime)
         if ceil(next) != ceil(remaining) || next == 0 { remaining = next }
         if next == 0 { finish() }
     }
     func setVisible(_ active: Bool) { if !active { visible = false; finish() } }
     func control(_ rhythm: CatPlayRhythm) {
-        guard !ending, result == nil, !scene.isResponding else { return }
+        guard !ending, result == nil, !scene.isResponding, !scene.isDemonstrating, !failed, !store.hasSaveFailure else { return }
         phase = "watching"; scene.runControl(rhythm)
     }
     func finish() {

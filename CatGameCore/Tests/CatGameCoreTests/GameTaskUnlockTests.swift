@@ -177,7 +177,7 @@ struct GameTaskUnlockTests {
         old.tasks.dailyClaimedTaskIDs = ["daily_work", "daily_feed"]
         var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(old)) as? [String: Any])
         json["schemaVersion"] = 3
-        var upgraded = try JSONDecoder().decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: json))
+        var upgraded = try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(json))
         #expect(upgraded == old && upgraded.schemaVersion == GameSnapshot.currentSchemaVersion)
         #expect(GameTaskCatalog.isClaimable(try task("daily_work2"), in: upgraded))
         #expect(GameTaskCatalog.isClaimable(try task("achievement_work100"), in: upgraded))
@@ -186,7 +186,7 @@ struct GameTaskUnlockTests {
         #expect(upgraded == old)
         json.removeValue(forKey: "tasks")
         #expect(throws: (any Error).self) {
-            try JSONDecoder().decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: json))
+            try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(json))
         }
     }
 

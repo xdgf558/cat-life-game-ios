@@ -270,7 +270,7 @@ struct CatHabitTests {
             var cats = try #require(json["cats"] as? [[String: Any]])
             for i in cats.indices { cats[i].removeValue(forKey: "habits") }
             json["cats"] = cats
-            let migrated = try NativeSaveCodec.decodeSnapshot(JSONSerialization.data(withJSONObject: json), now: now)
+            let migrated = try NativeSaveCodec.decodeSnapshot(snapshotFixtureData(json), now: now)
             #expect(migrated.schemaVersion == GameSnapshot.currentSchemaVersion)
             #expect(migrated.player == original.player)
             #expect(migrated.inventory == original.inventory)
@@ -291,7 +291,7 @@ struct CatHabitTests {
                     var cats = try #require(json["cats"] as? [[String: Any]])
                     cats[0].removeValue(forKey: key); json["cats"] = cats
                 }
-                #expect(throws: (any Error).self) { try NativeSaveCodec.decodeSnapshot(JSONSerialization.data(withJSONObject: json), now: now) }
+                #expect(throws: (any Error).self) { try NativeSaveCodec.decodeSnapshot(snapshotFixtureData(json), now: now) }
             }
         }
         var invalid = original

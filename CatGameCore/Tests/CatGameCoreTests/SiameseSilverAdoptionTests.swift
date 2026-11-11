@@ -86,7 +86,7 @@ struct SiameseSilverAdoptionTests {
         var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
         object["schemaVersion"] = 6
         object.removeValue(forKey: "community")
-        let decoded = try JSONDecoder().decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+        let decoded = try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(object))
         #expect(decoded.cats == original.cats && decoded.player == original.player)
         #expect(decoded.home == original.home && decoded.inventory == original.inventory)
         #expect(decoded.cats.map(\.appearance) == [.orange, .cow, .blue])

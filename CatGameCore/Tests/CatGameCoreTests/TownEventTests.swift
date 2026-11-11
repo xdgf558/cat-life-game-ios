@@ -171,11 +171,11 @@ struct TownEventTests {
         let after = state
         #expect(GameEngine.claimTownMilestone(&state, milestoneID: "town_memory_7", now: date).failure == .townMilestoneClaimed)
         #expect(state == after)
-        #expect(FurnitureCatalog.metadata(for: .wallTownMemory).isWall && !FurnitureKind.wallTownMemory.supportsMirroring)
+        #expect(FurnitureCatalog.metadata(for: .wallTownMemory).isWall && !FurnitureKind.wallTownMemory.supportsRotation)
         #expect(!ShopCatalog.furnitureOffers.contains { $0.kind == .wallTownMemory })
         #expect(throws: SaveRepositoryError.invalidSnapshot) {
             try JSONDecoder().decode(FurnitureItem.self,
-                from: JSONEncoder().encode(FurnitureItem(id: "memory", kind: .wallTownMemory, orientation: .mirrored)))
+                from: JSONEncoder().encode(FurnitureItem(id: "memory", kind: .wallTownMemory, orientation: .left)))
         }
         #expect(try NativeSaveTransfer.decode(NativeSaveTransfer.encode(snapshot: state)).snapshot == state)
     }

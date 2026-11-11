@@ -19,7 +19,7 @@ struct HomeFloorTests {
     }
 
     private func decode(_ object: [String: Any]) throws -> GameSnapshot {
-        try NativeSaveCodec.decodeSnapshot(JSONSerialization.data(withJSONObject: object), now: now)
+        try NativeSaveCodec.decodeSnapshot(snapshotFixtureData(object), now: now)
     }
 
     @Test func capacitiesArePerFloorAndDoNotShrinkExistingRooms() throws {
@@ -42,7 +42,7 @@ struct HomeFloorTests {
         expected.home.bowlPosition = .init(x: 0.6, y: 0.8)
         expected.home.furniture.removeLast()
         expected.home.furniture[0].position = .init(x: 0.3, y: 0.4)
-        expected.inventory.furniture[0].orientation = .mirrored
+        expected.inventory.furniture[0].orientation = .left
         for schema in 1...9 {
             var old = try object(expected)
             old["schemaVersion"] = schema
@@ -55,7 +55,7 @@ struct HomeFloorTests {
             }
             old["home"] = home
             let migrated = try decode(old)
-            #expect(migrated == expected)
+            #expect(migrated == (try expectedLegacyFootprintMigration(expected)))
             #expect(migrated.home.availableFloors == [.ground] && migrated.home.upperBowlPosition == nil)
             #expect(migrated.home.furniture.allSatisfy { $0.floor == .ground })
             #expect(try NativeSaveCodec.decodeSnapshot(NativeSaveCodec.encoder().encode(migrated), now: now) == migrated)
@@ -123,14 +123,14 @@ struct HomeFloorTests {
             furniture: value.home.placements(on: .ground).filter { $0.itemID != cabinet.itemID }, now: now).succeeded)
         let ground = value.home.placements(on: .ground)
         #expect(GameEngine.setRoomLayout(&value, bowlPosition: .init(x: 0.3, y: 0.7),
-            furniture: [cabinet], orientations: [cabinet.itemID: .mirrored], floor: .upper, now: now).succeeded)
+            furniture: [cabinet], orientations: [cabinet.itemID: .left], floor: .upper, now: now).succeeded)
         #expect(value.home.placements(on: .ground) == ground)
         #expect(value.home.bowlPosition == original.home.bowlPosition)
         #expect(value.home.placements(on: .upper).first?.floor == .upper)
         #expect(value.home.upperBowlPosition == .init(x: 0.3, y: 0.7))
         let bothFloors = value
         #expect(GameEngine.setRoomLayout(&value, bowlPosition: .init(x: 0.6, y: 0.8),
-            furniture: ground, orientations: [cabinet.itemID: .normal], now: now).failure == .roomInvalidFurnitureLayout)
+            furniture: ground, orientations: [cabinet.itemID: .front], now: now).failure == .roomInvalidFurnitureLayout)
         #expect(value == bothFloors)
         #expect(GameEngine.setRoomLayout(&value, bowlPosition: .init(x: 0.6, y: 0.8),
             furniture: [], now: now).succeeded)
@@ -170,7 +170,7 @@ struct HomeFloorTests {
         value.home.furniture[0].floor = .upper
         value.home.furniture[0].position = .init(x: 0.3, y: 0.45)
         value.home.upperBowlPosition = .init(x: 0.6, y: 0.8)
-        value.inventory.furniture[0].orientation = .mirrored
+        value.inventory.furniture[0].orientation = .left
         let encoded = try NativeSaveTransfer.encode(snapshot: value, exportedAt: now)
         let archive = try NativeSaveTransfer.decode(encoded, now: now)
         #expect(archive.snapshot == value)

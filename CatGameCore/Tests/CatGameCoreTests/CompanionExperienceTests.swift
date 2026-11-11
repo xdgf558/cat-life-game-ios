@@ -34,7 +34,7 @@ struct CompanionExperienceTests {
                 object["home"] = home
             }
             let loaded = try decode(object)
-            #expect(loaded.schemaVersion == 14 && loaded.isValid)
+            #expect(loaded.schemaVersion == 15 && loaded.isValid)
             #expect(loaded.player == original.player && loaded.inventory == original.inventory)
             #expect(loaded.cats[0].customName == original.cats[0].customName)
             #expect(loaded.cats[0].intimacy == original.cats[0].intimacy)
@@ -377,7 +377,7 @@ struct CompanionExperienceTests {
         try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
     }
     private func decode(_ value: [String: Any]) throws -> GameSnapshot {
-        try NativeSaveCodec.validated(JSONDecoder().decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: value)), migrationDate: now)
+        try NativeSaveCodec.validated(JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(value)), migrationDate: now)
     }
     private func has(_ memory: CatMemoryKind, in state: GameSnapshot) -> Bool {
         state.cats[0].habits.memories.contains { $0.kind == memory }

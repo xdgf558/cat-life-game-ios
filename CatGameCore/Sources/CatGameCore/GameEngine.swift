@@ -478,25 +478,28 @@ public enum GameEngine {
         guard Set(orientations.keys).isSubset(of: Set(state.inventory.furniture.map(\.id))) else {
             return failure(.roomInvalidFurnitureLayout)
         }
-        let owned = state.inventory.furniture.map { item in
-            var updated = item
-            updated.orientation = orientations[item.id] ?? item.orientation
-            return updated
-        }
         let otherFloor = state.home.furniture.filter { $0.floor != floor }
         // A placed instance must be put away before moving it between floors.
         let furniture = furniture.map { FurniturePlacement(itemID: $0.itemID, position: $0.position, floor: floor) }
         let merged = otherFloor + furniture
+        let owned = state.inventory.furniture.map { item in
+            var updated = item.applyingPlacement(from: state.home.furniture.first { $0.itemID == item.id },
+                                                to: merged.first { $0.itemID == item.id })
+            if let orientation = orientations[item.id] { updated.orientation = orientation }
+            return updated
+        }
         guard GameSnapshot.validFurniture(owned: owned, placements: merged),
               !zip(owned, state.inventory.furniture).contains(where: { updated, previous in
-                  updated.orientation != previous.orientation && otherFloor.contains { $0.itemID == updated.id }
+                  (updated.orientation != previous.orientation || updated.usesLegacyFootprint != previous.usesLegacyFootprint)
+                      && otherFloor.contains { $0.itemID == updated.id }
               }) else {
             return failure(.roomInvalidFurnitureLayout)
         }
         guard HomeCatalog.allowsLayout(merged, replacing: state.home.furniture, roomLevel: state.home.roomLevel)
         else { return failure(.roomCapacityReached, amount: HomeCatalog.level(state.home.roomLevel)?.capacity(on: floor) ?? 0) }
         let turnedPlacedItem = zip(owned, state.inventory.furniture).contains { updated, previous in
-            updated.orientation != previous.orientation && state.home.furniture.contains { $0.itemID == updated.id }
+            (updated.orientation != previous.orientation || updated.usesLegacyFootprint != previous.usesLegacyFootprint)
+                && state.home.furniture.contains { $0.itemID == updated.id }
         }
         if bowlPosition != state.home.bowlPosition(on: floor) || furniture != state.home.placements(on: floor) || turnedPlacedItem {
             // Geometry changes can affect an exit route as well as the occupied item.
@@ -727,8 +730,12 @@ extension GameSnapshot {
     static func validFurniture(owned: [FurnitureItem], placements: [FurniturePlacement]) -> Bool {
         let ownedIDs = Set(owned.map(\.id))
         guard ownedIDs.count == owned.count,
-              owned.allSatisfy({ !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                  && ($0.orientation == .normal || $0.kind.supportsMirroring) }),
+              owned.allSatisfy({ item in
+                  !item.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                  && (item.orientation == .front || item.kind.supportsRotation)
+                  && (!item.usesLegacyFootprint || (item.orientation == .left && item.kind.supportsRotation
+                      && placements.contains { $0.itemID == item.id }))
+              }),
               Set(placements.map(\.itemID)).count == placements.count else { return false }
         return placements.allSatisfy { ownedIDs.contains($0.itemID) && isUnitPosition($0.position) }
     }

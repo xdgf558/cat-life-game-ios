@@ -14,6 +14,7 @@ struct GameStoreFixtures {
     private var failCatAdoptionOnce = false
     private var failCatSelectionOnce = false
     private var failTreatmentOnce = false
+    private var failHabitPinOnce = false
     private var failUserSaves = false
     private var outageStarted = false
 
@@ -28,11 +29,33 @@ struct GameStoreFixtures {
         failCatAdoptionOnce = reset && arguments.contains("--cat-adoption-save-failure-once")
         failCatSelectionOnce = reset && arguments.contains("--cat-companion-save-failure-once")
         failTreatmentOnce = reset && arguments.contains("--hospital-save-failure-once")
+        failHabitPinOnce = reset && arguments.contains("--habit-pin-save-failure-once")
         guard reset else { return }
         futureLoadFailure = arguments.contains("--save-load-future-fixture")
         damagedLoadFailure = arguments.contains("--save-load-damaged-fixture")
         if futureLoadFailure || damagedLoadFailure { return }
-        if arguments.contains("--habit-play-need-fixture") {
+        if arguments.contains("--legacy-mirrors-fixture") {
+            var value = GameSnapshot.fresh(now: now)
+            value.home = HomeState(roomLevel: 3)
+            value.settings.audio = AudioSettings(musicEnabled: false, effectsEnabled: false, catEnabled: false, haptics: false)
+            do {
+                let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+                var json = try JSONSerialization.jsonObject(with: encoder.encode(value)) as! [String: Any]
+                json["schemaVersion"] = 14
+                var inventory = json["inventory"] as! [String: Any]
+                var furniture = inventory["furniture"] as! [[String: Any]]
+                for index in furniture.indices {
+                    let kind = FurnitureKind(rawValue: furniture[index]["kind"] as! String)!
+                    furniture[index]["orientation"] = kind.supportsRotation ? "mirrored" : "normal"
+                    furniture[index].removeValue(forKey: "usesLegacyFootprint")
+                }
+                inventory["furniture"] = furniture; json["inventory"] = inventory
+                let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+                let migrated = try decoder.decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: json))
+                _ = try NativeSaveTransfer.encode(snapshot: migrated, exportedAt: now)
+                initialSnapshot = migrated
+            } catch { preconditionFailure("Cannot construct the schema 14 mirrored-furniture fixture: \(error)") }
+        } else if arguments.contains("--habit-play-need-fixture") {
             var value = GameSnapshot.fresh(now: now)
             value.cats[0].satiety = 80
             value.cats[0].cleanliness = 80
@@ -280,6 +303,10 @@ struct GameStoreFixtures {
 
     mutating func checkSave(_ candidate: GameSnapshot, original: GameSnapshot,
                             exitsRest: Bool) throws {
+        if failHabitPinOnce && candidate.cats.map(\.habits.pinnedMemory) != original.cats.map(\.habits.pinnedMemory) {
+            failHabitPinOnce = false
+            throw CocoaError(.fileWriteUnknown)
+        }
         if failTreatmentOnce, candidate.player.gold < original.player.gold,
            original.cats.contains(where: { old in
                old.healthState?.illness != nil

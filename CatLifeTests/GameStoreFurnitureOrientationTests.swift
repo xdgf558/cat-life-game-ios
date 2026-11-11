@@ -5,7 +5,7 @@ import CatGameCore
 
 final class GameStoreFurnitureOrientationTests: XCTestCase {
     @MainActor
-    func testFlippingOnlyChangesSelectedDraftAndCancelRestoresSavedDirections() async throws {
+    func testFourWayTurnsOnlyChangeSelectedDraftAndCancelRestoresSavedDirections() async throws {
         let repository = OrientationSaveRepository(seed())
         let store = GameStore(repository: repository)
         await store.load()
@@ -14,15 +14,19 @@ final class GameStoreFurnitureOrientationTests: XCTestCase {
         store.beginDecorating()
         store.selectFurniture(id: "plantSmall")
         XCTAssertTrue(store.canFlipSelectedFurniture)
-        store.flipSelectedFurniture()
-        XCTAssertEqual(store.selectedFurniture?.orientation, .mirrored)
-        XCTAssertEqual(item("plantSmall", in: store.sceneSnapshot)?.orientation, .mirrored)
-        XCTAssertEqual(item("plantLarge", in: store.sceneSnapshot)?.orientation, .mirrored)
+        try completeTurn(store)
+        XCTAssertEqual(store.selectedFurniture?.orientation, .right)
+        XCTAssertEqual(item("plantSmall", in: store.sceneSnapshot)?.orientation, .right)
+        XCTAssertEqual(item("plantLarge", in: store.sceneSnapshot)?.orientation, .left)
         XCTAssertEqual(store.snapshot, original)
-        store.flipSelectedFurniture()
-        XCTAssertEqual(store.selectedFurniture?.orientation, .normal)
+        for direction: FurnitureOrientation in [.back, .left, .front] {
+            try completeTurn(store)
+            XCTAssertEqual(store.selectedFurniture?.orientation, direction)
+        }
+        try completeTurn(store, clockwise: false)
+        XCTAssertEqual(store.selectedFurniture?.orientation, .left)
         store.selectFurniture(id: "catBed")
-        store.flipSelectedFurniture()
+        try completeTurn(store)
         store.cancelDecorating()
         XCTAssertFalse(store.isDecorating)
         XCTAssertNil(store.draftFurnitureOrientations)
@@ -48,10 +52,10 @@ final class GameStoreFurnitureOrientationTests: XCTestCase {
         store.setLayoutResolving(true)
         XCTAssertFalse(store.canFlipSelectedFurniture)
         store.flipSelectedFurniture()
-        XCTAssertEqual(store.selectedFurniture?.orientation, .normal)
+        XCTAssertEqual(store.selectedFurniture?.orientation, .front)
         store.setLayoutResolving(false)
-        store.flipSelectedFurniture()
-        XCTAssertEqual(store.selectedFurniture?.orientation, .mirrored)
+        try completeTurn(store)
+        XCTAssertEqual(store.selectedFurniture?.orientation, .right)
 
         await repository.holdNextSave()
         defer { Task { await repository.release() } }
@@ -59,17 +63,17 @@ final class GameStoreFurnitureOrientationTests: XCTestCase {
         try await eventually { await repository.isHeld }
         XCTAssertFalse(store.canFlipSelectedFurniture)
         store.flipSelectedFurniture()
-        XCTAssertEqual(store.selectedFurniture?.orientation, .mirrored)
+        XCTAssertEqual(store.selectedFurniture?.orientation, .right)
         await repository.release()
         try await eventually { !store.isBusy }
         XCTAssertEqual(store.snapshot?.home.roomLevel, 2)
-        XCTAssertEqual(item("cabinet", in: store.snapshot)?.orientation, .normal)
-        XCTAssertEqual(store.selectedFurniture?.orientation, .mirrored,
+        XCTAssertEqual(item("cabinet", in: store.snapshot)?.orientation, .front)
+        XCTAssertEqual(store.selectedFurniture?.orientation, .right,
                        "An independent durable update must retain the unsaved orientation draft.")
         XCTAssertTrue(store.canFlipSelectedFurniture)
         store.cancelDecorating()
         XCTAssertEqual(store.snapshot?.home.roomLevel, 2)
-        XCTAssertEqual(item("cabinet", in: store.sceneSnapshot)?.orientation, .normal)
+        XCTAssertEqual(item("cabinet", in: store.sceneSnapshot)?.orientation, .front)
     }
 
     @MainActor
@@ -81,7 +85,7 @@ final class GameStoreFurnitureOrientationTests: XCTestCase {
         let destination = NormalizedPoint(x: 0.58, y: 0.68)
         store.beginDecorating()
         store.selectFurniture(id: "cabinet")
-        store.flipSelectedFurniture()
+        try completeTurn(store)
         store.moveFurniture(id: "cabinet", to: destination)
         await repository.setFailing(true)
         let baseline = await repository.attempts.count
@@ -93,7 +97,7 @@ final class GameStoreFurnitureOrientationTests: XCTestCase {
         XCTAssertEqual(store.snapshot, original)
         XCTAssertTrue(store.isDecorating && store.showSaveError && store.hasSaveFailure)
         XCTAssertFalse(store.isSavingLayout)
-        XCTAssertEqual(store.selectedFurniture?.orientation, .mirrored)
+        XCTAssertEqual(store.selectedFurniture?.orientation, .right)
         XCTAssertEqual(store.draftFurniture?.first { $0.itemID == "cabinet" }?.position, destination)
         let unchanged = await repository.saved
         XCTAssertEqual(unchanged, original)
@@ -112,13 +116,13 @@ final class GameStoreFurnitureOrientationTests: XCTestCase {
         XCTAssertEqual(store.snapshot, original)
         let pending = await repository.latestAttempt()
         let candidate = try XCTUnwrap(pending)
-        XCTAssertEqual(item("cabinet", in: candidate)?.orientation, .mirrored)
+        XCTAssertEqual(item("cabinet", in: candidate)?.orientation, .right)
         XCTAssertEqual(candidate.home.furniture.first { $0.itemID == "cabinet" }?.position, destination)
         await repository.release()
         try await eventually { !store.isBusy && !store.isDecorating }
         XCTAssertNil(store.draftFurnitureOrientations)
         XCTAssertFalse(store.hasSaveFailure)
-        XCTAssertEqual(item("cabinet", in: store.snapshot)?.orientation, .mirrored)
+        XCTAssertEqual(item("cabinet", in: store.snapshot)?.orientation, .right)
         XCTAssertEqual(store.snapshot?.home.furniture.first { $0.itemID == "cabinet" }?.position, destination)
         let durable = await repository.saved
         XCTAssertEqual(store.snapshot, durable)
@@ -136,17 +140,17 @@ final class GameStoreFurnitureOrientationTests: XCTestCase {
         let position = try XCTUnwrap(store.snapshot?.home.furniture.first { $0.itemID == "cabinet" }?.position)
         store.beginDecorating()
         store.selectFurniture(id: "cabinet")
-        store.flipSelectedFurniture()
+        try completeTurn(store)
         store.storeSelectedFurniture()
-        XCTAssertEqual(store.storedFurniture.first { $0.id == "cabinet" }?.orientation, .mirrored)
+        XCTAssertEqual(store.storedFurniture.first { $0.id == "cabinet" }?.orientation, .right)
         store.finishDecorating()
         try await eventually { !store.isBusy && !store.isDecorating }
         XCTAssertFalse(try XCTUnwrap(store.snapshot).home.furniture.contains { $0.itemID == "cabinet" })
-        XCTAssertEqual(item("cabinet", in: store.snapshot)?.orientation, .mirrored)
+        XCTAssertEqual(item("cabinet", in: store.snapshot)?.orientation, .right)
         let stored = try XCTUnwrap(store.snapshot)
 
         store.placeFurniture(id: "cabinet")
-        XCTAssertEqual(store.selectedFurniture?.orientation, .mirrored)
+        XCTAssertEqual(store.selectedFurniture?.orientation, .right)
         XCTAssertFalse(store.canFlipSelectedFurniture)
         store.flipSelectedFurniture()
         store.moveFurniture(id: "cabinet", to: position)
@@ -154,7 +158,7 @@ final class GameStoreFurnitureOrientationTests: XCTestCase {
         XCTAssertTrue(store.canFlipSelectedFurniture)
         store.cancelDecorating()
         XCTAssertEqual(store.snapshot, stored)
-        XCTAssertEqual(store.storedFurniture.first { $0.id == "cabinet" }?.orientation, .mirrored)
+        XCTAssertEqual(store.storedFurniture.first { $0.id == "cabinet" }?.orientation, .right)
 
         store.placeFurniture(id: "cabinet")
         store.moveFurniture(id: "cabinet", to: position)
@@ -163,8 +167,26 @@ final class GameStoreFurnitureOrientationTests: XCTestCase {
         try await eventually { !store.isBusy && !store.isDecorating }
         let reopened = GameStore(repository: repository)
         await reopened.load()
-        XCTAssertEqual(item("cabinet", in: reopened.snapshot)?.orientation, .mirrored)
+        XCTAssertEqual(item("cabinet", in: reopened.snapshot)?.orientation, .right)
         XCTAssertEqual(reopened.snapshot?.home.furniture.first { $0.itemID == "cabinet" }?.position, position)
+    }
+
+    @MainActor
+    private func completeTurn(_ store: GameStore, clockwise: Bool = true) throws {
+        let before = try XCTUnwrap(store.selectedFurniture)
+        store.rotateSelectedFurniture68(clockwise: clockwise)
+        let request = try XCTUnwrap(store.arrangement68.pendingRequest)
+        guard case .rotate(let id, let direction) = request.command else {
+            XCTFail("A turn must use the Scene command protocol.")
+            throw CocoaError(.coderInvalidValue)
+        }
+        XCTAssertEqual(id, before.id)
+        XCTAssertEqual(direction, clockwise ? before.orientation.turnedRight : before.orientation.turnedLeft)
+        XCTAssertEqual(store.selectedFurniture?.orientation, before.orientation, "Only a matching Scene acknowledgement may change the draft.")
+        store.applyArrangementOrientation68(id: id, orientation: direction)
+        store.completeArrangementCommand68(request.id)
+        XCTAssertNil(store.arrangement68.pendingRequest)
+        XCTAssertEqual(store.selectedFurniture?.orientation, direction)
     }
 
     private func seed() -> GameSnapshot {
@@ -173,7 +195,7 @@ final class GameStoreFurnitureOrientationTests: XCTestCase {
         value.player.level = 4
         value.player.gold = 2000
         if let index = value.inventory.furniture.firstIndex(where: { $0.id == "plantLarge" }) {
-            value.inventory.furniture[index].orientation = .mirrored
+            value.inventory.furniture[index].orientation = .left
         }
         return value
     }

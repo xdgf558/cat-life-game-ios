@@ -16,7 +16,7 @@ struct NativeSaveTransferTests {
         let data = try NativeSaveTransfer.encode(snapshot: .fresh(now: now), exportedAt: now)
         var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         try transform(&object)
-        return try JSONSerialization.data(withJSONObject: object)
+        return try snapshotFixtureData(object)
     }
 
     @Test func roundTripPreservesProgressNamesSettingsLayoutAndReceipts() throws {

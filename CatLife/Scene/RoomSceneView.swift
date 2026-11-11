@@ -6,7 +6,8 @@ extension RoomScene {
     var roomViewAngle: RoomViewAngle { roomPresentation.projection.angle }
     var isWholeRoomView: Bool { roomPresentation.camera.isWholeRoom }
     var canChangeRoomView: Bool {
-        presentationActive && !editing && !dragging && !isPlacementPending
+        presentationActive && !dragging && !isPlacementPending && !arrangementYielding68
+            && arrangement68.worker == nil && arrangement68.pendingRequest == nil
             && bowlPlanningRequest == nil && !residents.isPreparing
     }
 

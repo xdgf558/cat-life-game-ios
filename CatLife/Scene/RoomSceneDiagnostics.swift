@@ -249,7 +249,7 @@ final class RoomSceneDiagnostics {
             let world = worldPoint(node.position)
             let footprint = state.furnitureWorld.footprint(item)
             return ["id": item.id, "kind": item.kind.rawValue,
-                    "orientation": item.orientation.rawValue,
+                    "orientation": item.orientation.rawValue, "usesLegacyFootprint": item.usesLegacyFootprint,
                     "x": screen["x"]!, "y": screen["y"]!,
                     "worldX": world["x"]!, "worldY": world["y"]!,
                     "width": node.size.width, "height": node.size.height,
@@ -263,7 +263,16 @@ final class RoomSceneDiagnostics {
             return ["id": id, "x": point["x"]!, "y": point["y"]!, "visible": !actor.isHidden,
                     "screenWidth": frame?.width ?? 0, "screenHeight": frame?.height ?? 0]
         }
+        let meshRestSeat: [String: CGFloat]? = activeRest.flatMap { visit in
+            guard let node = furnitureNodes[visit.item.id],
+                  let variant = FurnitureArtwork68.variant(for: visit.item, angle: state.viewAngle),
+                  let offset = variant.surfaceOffset("seatCenter", referenceWidth: node.size.width),
+                  let anchor = state.presentation.anchor("furniture-" + visit.item.id) else { return nil }
+            return ["x": (anchor.x + offset.x / state.cameraScale) / size.width,
+                    "y": (anchor.y - offset.y / state.cameraScale) / size.height]
+        }
         let payload: [String: Any] = [
+            "meshRestSeat": meshRestSeat as Any? ?? NSNull(),
             "companionLabelText": (state.presentation.root.childNode(withName: "*/companion-name")?.children.first as? SKLabelNode)?.text ?? "",
             "viewAngle": state.viewAngle.rawValue, "wholeRoom": state.presentation.camera.isWholeRoom,
             "fitScale": state.presentation.camera.fitScale,

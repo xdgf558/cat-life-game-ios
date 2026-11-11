@@ -150,7 +150,9 @@ final class RoomExpansionGeometryTests: XCTestCase {
         for viewport in [CGSize(width: 375, height: 569), CGSize(width: 402, height: 776)] {
             for level in [1, 3] {
                 let scale = CGFloat(try XCTUnwrap(HomeCatalog.level(level)).worldScale)
-                for orientation in FurnitureOrientation.allCases {
+                // Freeze the original front-sprite rim calibration; four-way
+                // entrances and safe reverse exits use their own geometry suite.
+                for orientation in [FurnitureOrientation.front] {
                     var items = FurnitureCatalog.defaultItems
                     let bedIndex = try XCTUnwrap(items.firstIndex { $0.id == "catBed" })
                     items[bedIndex].orientation = orientation

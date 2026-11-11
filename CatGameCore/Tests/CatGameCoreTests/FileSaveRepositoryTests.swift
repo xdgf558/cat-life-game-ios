@@ -170,7 +170,7 @@ struct FileSaveRepositoryTests {
         try await repository.save(expected, now: now)
         var legacy = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: repository.saveURL)) as? [String: Any])
         legacy["schemaVersion"] = 1
-        let legacyBytes = try JSONSerialization.data(withJSONObject: legacy, options: [.sortedKeys])
+        let legacyBytes = try snapshotFixtureData(legacy, options: [.sortedKeys])
         try legacyBytes.write(to: repository.saveURL)
         expected = expectedCompanionMigration(expected)
 
@@ -216,7 +216,7 @@ struct FileSaveRepositoryTests {
         var home = try #require(legacy["home"] as? [String: Any])
         home.removeValue(forKey: "roomLevel")
         legacy["home"] = home
-        let legacyBytes = try JSONSerialization.data(withJSONObject: legacy, options: [.sortedKeys])
+        let legacyBytes = try snapshotFixtureData(legacy, options: [.sortedKeys])
         try legacyBytes.write(to: repository.saveURL)
 
         let migrated = try await repository.loadOrCreate(now: now)

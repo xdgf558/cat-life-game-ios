@@ -138,7 +138,7 @@ struct TownNoticeBoardView: View {
                 let claimed = snapshot.community.events.claimedMilestoneIDs.contains(milestone.id)
                 let failure = TownEventCatalog.milestoneEligibility(id: milestone.id, in: snapshot)
                 VStack(spacing: 16) {
-                    Image(FurnitureCatalog.metadata(for: milestone.furnitureKind).assetName).resizable().scaledToFit().frame(height: 170)
+                    Image(FurnitureArtwork68.assetName(for: .init(id: "souvenir", kind: milestone.furnitureKind))).resizable().scaledToFit().frame(height: 170)
                         .saturation(count >= milestone.target ? 1 : 0).opacity(count >= milestone.target ? 1 : 0.4)
                         .frame(maxWidth: .infinity).overlay {
                             if count < milestone.target { Image(systemName: "lock.fill").font(.largeTitle).foregroundStyle(RoomTheme.secondary) }

@@ -216,7 +216,7 @@ private final class PresentationSource {
     let selection = SKShapeNode()
     let toy = SKSpriteNode()
     let callbacks = PresentationCallbacks()
-    let items = [FurnitureItem(id: "chair", kind: .rattanChair, orientation: .mirrored),
+    let items = [FurnitureItem(id: "chair", kind: .rattanChair, orientation: .left),
                  FurnitureItem(id: "wall", kind: .wallFlower)]
     var furniture: [String: SKSpriteNode]
     let floor: RoomFloor

@@ -50,7 +50,7 @@ struct HealthCareTaskTests {
             tasks.removeValue(forKey: "totalCleanCount")
             tasks.removeValue(forKey: "dailyCleanCount")
             object["tasks"] = tasks
-            let upgraded = try JSONDecoder().decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+            let upgraded = try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(object))
             #expect(upgraded.tasks == state.tasks && upgraded.player == state.player)
             #expect(upgraded.schemaVersion == GameSnapshot.currentSchemaVersion)
             for id in ["tutorial_clean", "daily_clean", "achievement_clean10", "achievement_clean30"] {
@@ -61,7 +61,7 @@ struct HealthCareTaskTests {
             // A current header cannot turn a missing counter into a fresh reward opportunity.
             object["schemaVersion"] = GameSnapshot.currentSchemaVersion
             #expect(throws: (any Error).self) {
-                try JSONDecoder().decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+                try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(object))
             }
         }
     }
@@ -78,7 +78,7 @@ struct HealthCareTaskTests {
                 tasks[key] = value
                 object["tasks"] = tasks
                 #expect(throws: (any Error).self) {
-                    try JSONDecoder().decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+                    try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(object))
                 }
             }
         }

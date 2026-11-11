@@ -31,8 +31,16 @@ extension RoomHomeUITests {
         dismissCompanionship67AdoptionReminders(in: app)
         waitForObservedValue("habitPinnedPrompt", "littleCorner|collapsed", in: app)
         attachScreenshot(app, named: "Companionship 67 — the folded hint survives cold launch")
+        tapAnimationControl("habitPinnedHintToggle", in: app)
+        waitForObservedValue("habitPinnedPrompt", "littleCorner|expanded", in: app)
+        tapAnimationControl("homeHabitChangeGuide", in: app)
+        waitForElement("habitGuidePicker", in: app)
+        scrollPage("habitGuidePicker", to: "habitPin_settledAfterMove", allowDisabled: false, maximumDrags: 16, in: app)
+        tapAnimationControl("habitPin_settledAfterMove", in: app)
+        tapAnimationControl("habitPinConfirm", in: app)
+        waitForObservedValue("habitPinnedPrompt", "settledAfterMove|expanded", in: app)
+        attachScreenshot(app, named: "Companion design 68 - C1 Home picker returns to the new hint")
         try openCurrentCatProfile(in: app)
-        try chooseCompanionship67Guide("settledAfterMove", labels: ["换个地方看看"], in: app)
         waitForObservedValue("habitPinnedGuide", "settledAfterMove|expanded", in: app)
         XCTAssertFalse(element("catMemory_settledAfterMove", in: app).exists)
         tapAnimationControl("closeSheetButton", in: app)
@@ -56,12 +64,25 @@ extension RoomHomeUITests {
     }
 
     @MainActor
-    func testCompanionship67PinnedGuideSupportsThreeLanguagesAtLargestType() throws {
+    func testCompanionDesign68SimplifiedGuideAtLargestType() throws {
+        try assertPinnedGuideAtLargestType([("zh-Hans", "zh_CN", "换个地方看看")])
+    }
+
+    @MainActor
+    func testCompanionDesign68TraditionalGuideAtLargestType() throws {
+        try assertPinnedGuideAtLargestType([("zh-Hant", "zh_TW", "換個地方看看")])
+    }
+
+    @MainActor
+    func testCompanionDesign68EnglishGuideAtLargestType() throws {
+        try assertPinnedGuideAtLargestType([("en", "en_US", "Explore a new spot")])
+    }
+
+    @MainActor
+    private func assertPinnedGuideAtLargestType(_ languages: [(String, String, String)]) throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        for (language, locale, label) in [("zh-Hans", "zh_CN", "换个地方看看"),
-                                          ("zh-Hant", "zh_TW", "換個地方看看"),
-                                          ("en", "en_US", "Explore a new spot")] {
+        for (language, locale, label) in languages {
             app.terminate()
             app.launchArguments = ["--ui-testing", "--skip-onboarding", "--reset-ui-test-save", "--uitesting-siamese-owned", "--furniture-test",
                 "-AppleLanguages", "(\(language))", "-AppleLocale", locale, "--animation-test", "--reduce-motion-test",
@@ -111,10 +132,13 @@ extension RoomHomeUITests {
 
     @MainActor
     private func chooseCompanionship67Guide(_ memory: String, labels: [String], in app: XCUIApplication) throws {
-        scrollPage("catProfileScroll", to: "habitGuideMenu", allowDisabled: false, maximumDrags: 16, in: app)
+        scrollPage("catProfileScroll", to: "habitGuideMenu", allowDisabled: false, maximumDrags: 24, in: app)
         tapAnimationControl("habitGuideMenu", in: app)
         let option = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label IN %@", "habitPin_" + memory, labels)).firstMatch
-        XCTAssertTrue(option.waitForExistence(timeout: 5)); option.tap()
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        scrollPage("habitGuidePicker", to: "habitPin_" + memory, allowDisabled: false, maximumDrags: 16, in: app)
+        option.tap()
+        tapAnimationControl("habitPinConfirm", in: app)
     }
 
     @MainActor

@@ -5,7 +5,7 @@ import CatGameCore
 @testable import CatLife
 
 final class NewFurnitureGeometryTests: XCTestCase {
-    func testNewFloorFurnitureCanBePlacedWithoutBlockingCareAndMirroringKeepsTheSameFootprint() throws {
+    func testNewFloorFurnitureCanBePlacedWithoutBlockingCareAndUsesRotatedCoreFootprints() throws {
         for viewport in [CGSize(width: 375, height: 436), CGSize(width: 402, height: 776)] {
             for room in HomeCatalog.all {
                 for floor in room.floors {
@@ -36,9 +36,13 @@ final class NewFurnitureGeometryTests: XCTestCase {
                         XCTAssertNotNil(placed.roomFloor.feedingPlan(from: cat, bowlAt: placed.bowlPosition,
                             navigator: placed.roomFloor.navigator(bowlAt: placed.bowlPosition)), context)
                         XCTAssertNil(placed.restVisit(to: item.id, from: cat), context)
-                        var mirrored = item
-                        mirrored.orientation = .mirrored
-                        XCTAssertEqual(placed.footprint(item), placed.footprint(mirrored), context)
+                        for orientation in FurnitureOrientation.allCases {
+                            var turned = item
+                            turned.orientation = orientation
+                            let size = FurnitureCatalog.footprint(for: turned).artworkSize
+                            XCTAssertEqual(placed.footprint(turned), CGSize(width: size.width * transform.visualScale,
+                                height: size.height * transform.visualScale), context)
+                        }
                     }
                 }
             }
@@ -54,7 +58,7 @@ final class NewFurnitureGeometryTests: XCTestCase {
                     for kind in [FurnitureKind.wallSunrise, .wallTownMemory] {
                         let item = FurnitureItem(id: "wall", kind: kind)
                         XCTAssertTrue(RoomFurnitureSpec.forItem(item).isWall)
-                        XCTAssertFalse(kind.supportsMirroring)
+                        XCTAssertFalse(kind.supportsRotation)
                         let world = RoomFurnitureWorld(transform: .init(sceneSize: size,
                             artworkSize: .init(width: 1024, height: 1536), viewportSize: viewport),
                             catWidth: viewport.width * 0.14, bowlSize: .init(width: 48, height: 32),

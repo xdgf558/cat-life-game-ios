@@ -17,7 +17,7 @@ struct StarterLayoutMigrationTests {
     private func reload(_ state: GameSnapshot, schema: Int) throws -> GameSnapshot {
         var encoded = state
         encoded.schemaVersion = schema
-        return try JSONDecoder().decode(GameSnapshot.self, from: JSONEncoder().encode(encoded))
+        return try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(encoded))
     }
 
     @Test func frozenSchemaSixStarterPlacesCushionInsideFullHeightFloor() throws {
@@ -38,7 +38,7 @@ struct StarterLayoutMigrationTests {
                 original.player.profile.name = "Milo"
                 original.cats[0].customName = "豆豆"
                 let item = try #require(original.inventory.furniture.firstIndex { $0.id == "floorCushion" })
-                original.inventory.furniture[item].orientation = .mirrored
+                original.inventory.furniture[item].orientation = .left
                 let catID = original.activeCatID
                 try #require(original.isValid)
                 try #require(GameEngine.startCatRest(&original, catID: catID,
@@ -48,7 +48,7 @@ struct StarterLayoutMigrationTests {
                 var expected = original
                 let cushion = try #require(expected.home.furniture.firstIndex { $0.itemID == "floorCushion" })
                 expected.home.furniture[cushion].position.x = 0.22
-                expected = expectedCompanionMigration(expected)
+                expected = try expectedLegacyFootprintMigration(expectedCompanionMigration(expected))
                 let loaded = try reload(original, schema: version)
                 #expect(loaded == expected)
                 #expect(loaded.isValid && loaded.schemaVersion == GameSnapshot.currentSchemaVersion)

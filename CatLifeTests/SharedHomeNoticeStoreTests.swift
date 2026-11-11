@@ -71,7 +71,7 @@ final class SharedHomeNoticeStoreTests: XCTestCase {
         expectNoHint(store)
 
         let bed = try XCTUnwrap(changed.inventory.furniture.firstIndex { $0.kind == .catBed })
-        changed.inventory.furniture[bed].orientation = .mirrored
+        changed.inventory.furniture[bed].orientation = .left
         await repository.replace(changed)
         await store.load()
         expectNewHint(store)

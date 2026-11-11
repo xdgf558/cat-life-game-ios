@@ -23,6 +23,7 @@ struct RoomCareBar63: View {
             careButton(.play, key: "care.play", count: store.snapshot?.inventory.toys ?? 0,
                 premium: false, stockID: "toyCount") { store.presentPlayChoices() }
         }
+        .opacity(store.cat?.activeRest == nil ? 1 : 0.5)
         .disabled(store.isBusy || store.isDecorating || store.cat == nil)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("homeCareBar63")
