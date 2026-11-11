@@ -1,15 +1,17 @@
 打工养猫日记 · TestFlight 交接（独立 iOS 仓库）
 
-当前上传：0.22.0（67）陪伴体验与回忆扩展，2026-11-11 09:10:09（GMT+8）上传成功。上传回执确认 Apple 已开始处理，尚未确认处理完成、审核通过或测试开放。本次仓库拆分不重新发布，不提升版本号，也不重新上传。
+当前上传：0.23.0（68）陪伴界面与四向家具布置，2026-11-11 19:43:00（GMT+8）上传成功。PR #1 已合并；Apple 已开始处理，尚未确认处理完成、审核通过或测试开放。
 目标 App：https://appstoreconnect.apple.com/apps/6830428076/testflight
 App ID：6830428076；Bundle ID：com.stationcat.catlife.native。沿用既有应用记录与玩家存档，不创建新 App。
 内测、外测群组、测试者邀请、Beta Review 与测试分发由用户手动添加；代理此次未操作这些项目。后续上传仍需先完成开发验证、PR 审查并取得用户明确授权。
-0.22.0 功能和验证边界见 ../../QA/companionship-build67-summary.md；本说明只更新上传交接状态，不把历史测试记作本次迁移重新执行，也不宣称真机性能验收完成。
+本版发布记录见 ../../QA/testflight-build68-summary.md；功能验证见 ../../QA/design-build68-summary.md，测试重点见 companion-design-0.23.0-68.txt。合并后源码树与审查通过版本完全一致，既有功能测试不计作本次上传重跑，真机性能仍待玩家验证。
 
 独立仓库的工程入口为根目录 CatLife.xcodeproj、scheme CatLife。当前资源、构建、测试和外盘缓存步骤统一见 ../../README.md；所有现行命令从仓库根目录执行，不再带 native/ios/ 前缀。源代码、资源和分发目录已整体迁入，不改变应用标识或发布策略。
 下方旧 PR 编号、原提交 hash 和旧归档路径均为原合并仓库 https://github.com/xdgf558/cat-life-game 的历史记录，过滤迁移后提交 hash 已变化；这些记录不代表新仓库提交。历史中的“最新”“当前”等仅指当时，以下正文除首条改为“历史上传”外保留原记录。更完整的旧 README 见 ../../docs/history/README-legacy.txt。
 
 ——历史上传与交接记录——
+
+历史上传：0.22.0（67）陪伴体验与回忆扩展，2026-11-11 09:10:09（GMT+8）上传成功。上传回执确认 Apple 已开始处理，尚未确认处理完成、审核通过或测试开放。本次仓库拆分不重新发布，不提升版本号，也不重新上传。
 
 历史上传：0.21.1（66）正面房间、初始布置与托盘比例一致性修复，2026-11-10 23:27:02（GMT+8）上传成功。Xcode返回Upload succeeded / EXPORT SUCCEEDED，并确认Uploaded package is processing；未确认Apple处理完成或开放测试，内测外测由用户手动添加，未操作群组或Beta Review。
 PR #28已合并，发布main为aa89f1d8a8b22f310c3a8cdf09974bb49f8005da，与审查通过的a00086b完整源码树一致。从main新建签名归档；实际App Store分发包get-task-allow关闭、无设备列表，510项生产输入上传前后无漂移。目标App6830428076，Bundle com.stationcat.catlife.native。验证范围见../../QA/testflight-build66-summary.md；测试重点见front-room-0.21.1-66.txt。此前65的准确记录见../../QA/testflight-build65-summary.md。下面保留原历史记录。

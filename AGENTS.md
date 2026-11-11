@@ -26,6 +26,6 @@
 - 每次向玩家交付新的更新，必须同时提升 `CatLife/Info.plist` 的 `CFBundleShortVersionString` 和递增 `CFBundleVersion`，不能只提升构建号。修复或界面微调递增 patch，功能迭代递增 minor；同一次尚未发布更新的调试可保留对外版本号，构建号按需递增，不适用于已交付后的新更新。
 - 同步 `CatLife/Views/AppRelease.swift` 的当前历史、`CatLife/Localization/GameStrings+*.swift` 的三语更新说明及版本测试。历史已发布版本、构建号和日期不得回写；第 13 版及更早实际为 `0.1.0`，保留原记录。
 - 通常一个版本一个 PR；用户明确要求合并任务时按授权范围整理。开发和必要验证完成后开 PR 供用户审查，明确通过且授权后再合并、归档或上传，不把审查结论自行等同于上传许可。
-- 当前已上传 TestFlight 的版本为 **0.22.0（67）**，上传时间 **2026-11-11 09:10:09（GMT+8）**；已确认 Apple 开始处理，未确认处理完成或测试开放。仓库拆分不是发布，不因此改版本号、Bundle ID `com.stationcat.catlife.native` 或 App Store Connect 应用记录。
+- 当前已上传 TestFlight 的版本为 **0.23.0（68）**，上传时间 **2026-11-11 19:43:00（GMT+8）**；PR #1 已合并，Apple 已开始处理，未确认处理完成或测试开放。Bundle ID 仍为 `com.stationcat.catlife.native`，沿用现有 App Store Connect 应用记录。
 - 用户于 2026-11-04 指定：内测/外测群组、测试者、邀请、Beta Review 与测试分发由用户手动处理，除非再次明确授权。上传成功、Apple 处理完成、审核通过和测试开放须分别记录；上传不得限制为 Internal Only，避免妨碍用户外测。
 - 发布归档、上传和真机安装分别记录验证结果；未经授权不重置玩家存档。正式上架前仍需检查更新链接、内部观察入口及密集场景真机性能，不将模拟器通过当作这些事项已完成。
