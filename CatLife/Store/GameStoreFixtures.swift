@@ -34,7 +34,28 @@ struct GameStoreFixtures {
         futureLoadFailure = arguments.contains("--save-load-future-fixture")
         damagedLoadFailure = arguments.contains("--save-load-damaged-fixture")
         if futureLoadFailure || damagedLoadFailure { return }
-        if arguments.contains("--habit-play-need-fixture") {
+        if arguments.contains("--legacy-mirrors-fixture") {
+            var value = GameSnapshot.fresh(now: now)
+            value.home = HomeState(roomLevel: 3)
+            value.settings.audio = AudioSettings(musicEnabled: false, effectsEnabled: false, catEnabled: false, haptics: false)
+            do {
+                let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+                var json = try JSONSerialization.jsonObject(with: encoder.encode(value)) as! [String: Any]
+                json["schemaVersion"] = 14
+                var inventory = json["inventory"] as! [String: Any]
+                var furniture = inventory["furniture"] as! [[String: Any]]
+                for index in furniture.indices {
+                    let kind = FurnitureKind(rawValue: furniture[index]["kind"] as! String)!
+                    furniture[index]["orientation"] = kind.supportsRotation ? "mirrored" : "normal"
+                    furniture[index].removeValue(forKey: "usesLegacyFootprint")
+                }
+                inventory["furniture"] = furniture; json["inventory"] = inventory
+                let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+                let migrated = try decoder.decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: json))
+                _ = try NativeSaveTransfer.encode(snapshot: migrated, exportedAt: now)
+                initialSnapshot = migrated
+            } catch { preconditionFailure("Cannot construct the schema 14 mirrored-furniture fixture: \(error)") }
+        } else if arguments.contains("--habit-play-need-fixture") {
             var value = GameSnapshot.fresh(now: now)
             value.cats[0].satiety = 80
             value.cats[0].cleanliness = 80

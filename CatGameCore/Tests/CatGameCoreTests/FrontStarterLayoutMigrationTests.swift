@@ -89,7 +89,7 @@ struct FrontStarterLayoutMigrationTests {
         upstairsItem.home.furniture[0].floor = .upper
         for state in [moved, bowl, mirrored, differentKind, stored, placedExtra, upper, upstairsItem] {
             #expect(state.isValid)
-            #expect(try reload(state) == companionMigrated(state))
+            #expect(try reload(state) == expectedLegacyFootprintMigration(companionMigrated(state)))
         }
     }
 

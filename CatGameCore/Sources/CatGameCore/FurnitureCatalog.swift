@@ -48,7 +48,10 @@ public enum FurnitureOrientation: String, Codable, CaseIterable, Hashable, Senda
 public struct FurnitureItem: Codable, Equatable, Hashable, Identifiable, Sendable {
     public var id: String
     public var kind: FurnitureKind
-    public var orientation: FurnitureOrientation
+    public var orientation: FurnitureOrientation {
+        didSet { usesLegacyFootprint = false }
+    }
+    public private(set) var usesLegacyFootprint = false
 
     public init(id: String, kind: FurnitureKind, orientation: FurnitureOrientation = .front) {
         self.id = id
@@ -56,7 +59,38 @@ public struct FurnitureItem: Codable, Equatable, Hashable, Identifiable, Sendabl
         self.orientation = orientation
     }
 
-    private enum CodingKeys: String, CodingKey { case id, kind, orientation }
+    private enum CodingKeys: String, CodingKey { case id, kind, orientation, usesLegacyFootprint }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(kind, forKey: .kind)
+        try values.encode(orientation, forKey: .orientation)
+        try values.encode(usesLegacyFootprint, forKey: .usesLegacyFootprint)
+    }
+
+    /// Ignore only sub-pixel scene-coordinate round trips; keep saved coordinates
+    /// and all floor/item references exact.
+    public func applyingPlacement(from previous: FurniturePlacement?, to current: FurniturePlacement?) -> Self {
+        var item = self
+        let unchanged: Bool
+        switch (previous, current) {
+        case (nil, nil): unchanged = true
+        case let (old?, new?):
+            unchanged = old.itemID == new.itemID && old.floor == new.floor
+                && abs(old.position.x - new.position.x) <= 0.000_001
+                && abs(old.position.y - new.position.y) <= 0.000_001
+        default: unchanged = false
+        }
+        if !unchanged { item.usesLegacyFootprint = false }
+        return item
+    }
+
+    func usingCurrentFootprint() -> Self {
+        var item = self
+        item.usesLegacyFootprint = false
+        return item
+    }
 
     public init(from decoder: Decoder) throws {
         try self.init(from: decoder, schemaVersion: GameSnapshot.currentSchemaVersion)
@@ -73,13 +107,17 @@ public struct FurnitureItem: Codable, Equatable, Hashable, Identifiable, Sendabl
             // would turn a damaged old snapshot into apparently valid progress.
             switch try values.decode(String.self, forKey: .orientation) {
             case "normal": orientation = .front
-            case "mirrored": orientation = .left
+            case "mirrored": orientation = .left; usesLegacyFootprint = true
             default: throw SaveRepositoryError.invalidSnapshot
             }
         } else {
             orientation = try values.decode(FurnitureOrientation.self, forKey: .orientation)
+            usesLegacyFootprint = try values.decode(Bool.self, forKey: .usesLegacyFootprint)
         }
-        guard orientation == .front || kind.supportsRotation else { throw SaveRepositoryError.invalidSnapshot }
+        guard (orientation == .front || kind.supportsRotation),
+              !usesLegacyFootprint || (orientation == .left && kind.supportsRotation) else {
+            throw SaveRepositoryError.invalidSnapshot
+        }
     }
 }
 
@@ -143,8 +181,8 @@ public struct FurnitureMetadata: Equatable, Sendable {
     }
 }
 
-/// The food bowl keeps its existing independent field. Front footprints freeze
-/// the previous collision sizes, so adopting the grid does not resize old rooms.
+/// The food bowl keeps its existing independent field. Migrated mirrored items
+/// retain these released collision sizes until explicitly moved or turned.
 public enum FurnitureCatalog {
     public static var all: [FurnitureMetadata] { FurnitureKind.allCases.map { metadata(for: $0) } }
 
@@ -188,7 +226,7 @@ public enum FurnitureCatalog {
     }
 
     public static func footprint(for item: FurnitureItem) -> FurnitureFootprint {
-        let footprint = metadata(for: item.kind).footprint(for: item.orientation)
+        let footprint = metadata(for: item.kind).footprint(for: item.usesLegacyFootprint ? .front : item.orientation)
         let factor = item.kind == .plant && item.id == "plantSmall" ? 0.78 : 1
         return .init(width: footprint.width * factor, depth: footprint.depth * factor)
     }

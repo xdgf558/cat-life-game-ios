@@ -14,6 +14,7 @@ func snapshotFixtureData(_ object: [String: Any], options: JSONSerialization.Wri
        var inventory = object["inventory"] as? [String: Any],
        var items = inventory["furniture"] as? [[String: Any]] {
         for index in items.indices {
+            items[index].removeValue(forKey: "usesLegacyFootprint")
             if items[index]["orientation"] as? String == "front" { items[index]["orientation"] = "normal" }
             if items[index]["orientation"] as? String == "left" { items[index]["orientation"] = "mirrored" }
         }
@@ -27,4 +28,17 @@ func snapshotFixtureData(_ state: GameSnapshot) throws -> Data {
     let data = try JSONEncoder().encode(state)
     let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     return try snapshotFixtureData(object)
+}
+
+/// Independent schema-15 expectation: released placed mirrors acquire only this marker.
+func expectedLegacyFootprintMigration(_ original: GameSnapshot) throws -> GameSnapshot {
+    var expected = original
+    for index in expected.inventory.furniture.indices {
+        let item = expected.inventory.furniture[index]
+        guard item.orientation == .left, expected.home.furniture.contains(where: { $0.itemID == item.id }) else { continue }
+        let data = try JSONSerialization.data(withJSONObject: ["id": item.id, "kind": item.kind.rawValue,
+            "orientation": "left", "usesLegacyFootprint": true])
+        expected.inventory.furniture[index] = try JSONDecoder().decode(FurnitureItem.self, from: data)
+    }
+    return expected
 }

@@ -125,11 +125,14 @@ struct RoomFurnitureWorld: Sendable {
     }
 
     func replacing(_ id: String, with center: CGPoint) -> Self {
-        let floor = placements.first { $0.itemID == id }?.floor ?? .ground
+        let previous = placements.first { $0.itemID == id }
+        let placement = FurniturePlacement(itemID: id, position: RoomArrangementGrid68(transform: transform).normalized(world: center),
+                                           floor: previous?.floor ?? .ground)
         var updated = placements.filter { $0.itemID != id }
-        updated.append(.init(itemID: id, position: transform.normalized(center), floor: floor))
+        updated.append(placement)
+        let owned = items.map { $0.id == id ? $0.applyingPlacement(from: previous, to: placement) : $0 }
         return Self(transform: transform, catWidth: catWidth, bowlSize: bowlSize, bowlPosition: bowlPosition,
-                    items: items, placements: updated)
+                    items: owned, placements: updated)
     }
 
     func replacingOrientation(_ id: String, with orientation: FurnitureOrientation) -> Self {

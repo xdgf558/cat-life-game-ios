@@ -167,6 +167,7 @@ extension RoomScene {
                   self.placementRevision == ticket, !worker.isCancelled else { return }
             self.arrangement68.worker = nil
             let previousFloor = self.floor
+            self.ownedFurniture = result.world.items
             self.newPlacementID = nil
             if inserted != nil { self.arrangement68.pendingDrop = nil }
             if let id {

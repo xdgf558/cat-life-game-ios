@@ -62,14 +62,15 @@ final class RoomArrangementRendering68: SKNode {
                 gridLines.path = path.copy(dashingWithPhase: 0, lengths: [4, 4])
             }
         }
-        let item = selectedID.flatMap(world.item)
         let center = previewCenter ?? selectedID.flatMap(world.center) ?? world.bowlPosition
+        let previewWorld = selectedID.map { world.replacing($0, with: center) } ?? world
+        let item = selectedID.flatMap(previewWorld.item)
         let wall = item.map { FurnitureCatalog.metadata(for: $0.kind).isWall } ?? false
         let key = selectedID ?? "bowl"
         let selected = selectedID != nil || bowlSelected
         footprint.isHidden = !selected; direction.isHidden = !selected || wall
         guard selected else { return }
-        let size = item.map(world.footprint) ?? world.roomFloor.bowlFootprint
+        let size = item.map(previewWorld.footprint) ?? world.roomFloor.bowlFootprint
         let orientation = item?.orientation ?? .front
         let invalid = issues[key] != nil
         let selectionKey = "\(signature)|\(key)|\(center)|\(size)|\(orientation)|\(invalid)"

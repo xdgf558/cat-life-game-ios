@@ -124,7 +124,7 @@ struct FourWayFurnitureTests {
                 original.home = HomeState(furniture: original.home.furniture, roomLevel: 6)
                 original.home.furniture[0].floor = .upper
             }
-            let expected = schema < 14 ? expectedCompanionMigration(original) : original
+            let expected = try expectedLegacyFootprintMigration(schema < 14 ? expectedCompanionMigration(original) : original)
             let loaded = try decode(legacyObject(original, schema: schema))
             #expect(loaded == expected && loaded.isValid)
             #expect(loaded.home == original.home && loaded.cats[0].activeRest == original.cats[0].activeRest)
@@ -154,22 +154,23 @@ struct FourWayFurnitureTests {
         var saved = try #require(JSONSerialization.jsonObject(with: NativeSaveCodec.encoder().encode(original)) as? [String: Any])
         saved["schemaVersion"] = 14
         let bytes = try snapshotFixtureData(saved)
+        let expected = try expectedLegacyFootprintMigration(original)
         var envelope = try #require(JSONSerialization.jsonObject(with:
             NativeSaveTransfer.encode(snapshot: original, exportedAt: now)) as? [String: Any])
         envelope["snapshot"] = try JSONSerialization.jsonObject(with: bytes)
         let oldArchive = try JSONSerialization.data(withJSONObject: envelope)
-        #expect(try NativeSaveTransfer.decode(oldArchive, now: now).snapshot == original)
+        #expect(try NativeSaveTransfer.decode(oldArchive, now: now).snapshot == expected)
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("FourWayFurniture-\(UUID())")
         defer { try? FileManager.default.removeItem(at: folder) }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let repository = FileSaveRepository(directory: folder)
         try bytes.write(to: repository.saveURL)
         let loaded = try await repository.loadOrCreate(now: now)
-        #expect(loaded == original)
+        #expect(loaded == expected)
         #expect(try Data(contentsOf: repository.saveURL) == bytes)
-        #expect(try NativeSaveTransfer.decode(NativeSaveTransfer.encode(snapshot: loaded, exportedAt: now), now: now).snapshot == original)
+        #expect(try NativeSaveTransfer.decode(NativeSaveTransfer.encode(snapshot: loaded, exportedAt: now), now: now).snapshot == expected)
         try await repository.save(loaded, now: now)
-        #expect(try await FileSaveRepository(directory: folder).loadOrCreate(now: now) == original)
+        #expect(try await FileSaveRepository(directory: folder).loadOrCreate(now: now) == expected)
         let newObject = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: repository.saveURL)) as? [String: Any])
         #expect(newObject["schemaVersion"] as? Int == 15)
         let inventory = try #require(newObject["inventory"] as? [String: Any])

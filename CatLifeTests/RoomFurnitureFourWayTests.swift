@@ -23,6 +23,8 @@ final class RoomFurnitureFourWayTests: XCTestCase {
         let repository = FileSaveRepository(directory: directory)
         let legacy = try legacySnapshotFixture(expected, schema: 14)
         try legacy.write(to: repository.saveURL)
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        expected.inventory.furniture = try decoder.decode(GameSnapshot.self, from: legacy).inventory.furniture
         let loaded = try await repository.loadOrCreate(now: now)
         XCTAssertEqual(loaded, expected)
         XCTAssertEqual(loaded.schemaVersion, 15)
@@ -30,6 +32,7 @@ final class RoomFurnitureFourWayTests: XCTestCase {
         let world = makeWorld(items: loaded.inventory.furniture, placements: loaded.home.placements(on: .upper))
         let cabinet = try XCTUnwrap(world.item("cabinet"))
         XCTAssertEqual(cabinet.orientation, .left)
+        XCTAssertTrue(cabinet.usesLegacyFootprint)
         let size = FurnitureCatalog.footprint(for: cabinet).artworkSize
         XCTAssertEqual(world.footprint(cabinet), CGSize(width: size.width * world.transform.visualScale,
                                                       height: size.height * world.transform.visualScale))
@@ -136,8 +139,11 @@ final class RoomFurnitureFourWayTests: XCTestCase {
             furnitureID: "catBed", sessionID: "mirrored-wall-rest", now: now).succeeded)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let loaded = try decoder.decode(GameSnapshot.self, from: legacySnapshotFixture(expected, schema: 14))
+        let legacy = try legacySnapshotFixture(expected, schema: 14)
+        expected.inventory.furniture = try decoder.decode(GameSnapshot.self, from: legacy).inventory.furniture
+        let loaded = try decoder.decode(GameSnapshot.self, from: legacy)
         XCTAssertEqual(loaded, expected)
+        XCTAssertTrue(try XCTUnwrap(loaded.inventory.furniture.first { $0.id == "catBed" }).usesLegacyFootprint)
         let world = makeWorld(viewport: CGSize(width: 375, height: 569), scale: 1,
             items: loaded.inventory.furniture, placements: loaded.home.furniture)
         let start = CGPoint(x: world.transform.sceneSize.width * 0.43, y: world.transform.sceneSize.height * 0.18)
@@ -181,6 +187,7 @@ final class RoomFurnitureFourWayTests: XCTestCase {
         var inventory = try XCTUnwrap(object["inventory"] as? [String: Any])
         var items = try XCTUnwrap(inventory["furniture"] as? [[String: Any]])
         for index in items.indices {
+            items[index].removeValue(forKey: "usesLegacyFootprint")
             switch items[index]["orientation"] as? String {
             case "front": items[index]["orientation"] = "normal"
             case "left": items[index]["orientation"] = "mirrored"

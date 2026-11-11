@@ -48,7 +48,7 @@ struct StarterLayoutMigrationTests {
                 var expected = original
                 let cushion = try #require(expected.home.furniture.firstIndex { $0.itemID == "floorCushion" })
                 expected.home.furniture[cushion].position.x = 0.22
-                expected = expectedCompanionMigration(expected)
+                expected = try expectedLegacyFootprintMigration(expectedCompanionMigration(expected))
                 let loaded = try reload(original, schema: version)
                 #expect(loaded == expected)
                 #expect(loaded.isValid && loaded.schemaVersion == GameSnapshot.currentSchemaVersion)

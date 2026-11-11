@@ -15,10 +15,15 @@ extension RoomHomeUITests {
         let worldX: Double?
         let worldY: Double?
         let orientation: String
+        let usesLegacyFootprint: Bool?
+        let footprintWidth: Double?
+        let footprintHeight: Double?
         var position: CGVector { CGVector(dx: x, dy: y) }
         var isWall: Bool { kind == "wallFlower" || kind == "wallCat" }
 
-        private enum CodingKeys: String, CodingKey { case id, kind, x, y, worldX, worldY, orientation }
+        private enum CodingKeys: String, CodingKey {
+            case id, kind, x, y, worldX, worldY, orientation, usesLegacyFootprint, footprintWidth, footprintHeight
+        }
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
             id = try values.decode(String.self, forKey: .id)
@@ -28,6 +33,9 @@ extension RoomHomeUITests {
             worldX = try values.decodeIfPresent(Double.self, forKey: .worldX)
             worldY = try values.decodeIfPresent(Double.self, forKey: .worldY)
             orientation = try values.decodeIfPresent(String.self, forKey: .orientation) ?? "front"
+            usesLegacyFootprint = try values.decodeIfPresent(Bool.self, forKey: .usesLegacyFootprint)
+            footprintWidth = try values.decodeIfPresent(Double.self, forKey: .footprintWidth)
+            footprintHeight = try values.decodeIfPresent(Double.self, forKey: .footprintHeight)
         }
     }
 
@@ -61,6 +69,7 @@ extension RoomHomeUITests {
         let foodContactSamples: Int
         let foodContactViolations: Int
         let bowl: FurniturePoint
+        let savedBowl: FurniturePoint?
         let cat: FurniturePoint
         let restFurniture: String?
         let restPoint: FurniturePoint?

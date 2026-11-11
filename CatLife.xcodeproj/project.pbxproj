@@ -161,6 +161,7 @@
 		77896862B648B8A22F5497C2F135BC71 /* NewFurnitureGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FA4308FAB6DE74DA355E200025D9337 /* NewFurnitureGeometryTests.swift */; };
 		79750A978619F53991DF00472BED30F3 /* RoomResidentPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29437FCE77172534C642EE9CE2ABE66F /* RoomResidentPlanner.swift */; };
 		79BC7D45B8312D745A26A32A6C9C8A2A /* RoomRenderedRestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2719D79099B6168284A9DD5A8F7329B /* RoomRenderedRestTests.swift */; };
+		79BD71F965EC74C8E8F361F2105EB886 /* LegacyMirroredLayoutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA3C164DB43E72EF4711AD64351D2B0B /* LegacyMirroredLayoutUITests.swift */; };
 		7A1169688B266E110AA96F3282BC7494 /* GameStoreTaskTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A2569AD539E6F6932C1B579D4CFA1B0 /* GameStoreTaskTests.swift */; };
 		7A38D4F7968FBA452AC1879765AA9E66 /* PlayerProfileUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F483019BCA8916FE741353A8B32C20 /* PlayerProfileUITests.swift */; };
 		7A94A35EE03CEC96E3F8948BD7694006 /* ProfileDressingStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 801775CEC2C41983D0A3262F5D2BA5CE /* ProfileDressingStage.swift */; };
@@ -267,6 +268,7 @@
 		CDD40EDF570CAED243CD1EB453A8F9F3 /* GameStoreFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44A25D9426B4B0CB98D66CD62FC34B71 /* GameStoreFixtures.swift */; };
 		CE198D0064ECF09CF826385079575C29 /* GameStrings+Market.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8F47E3642497AE9963BD64ABA088876 /* GameStrings+Market.swift */; };
 		CE5F9BCCF36CA4697CF9B52F471F7AF9 /* SettingsAudioControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = A82F6958AAF3E03AE4241E750105C612 /* SettingsAudioControl.swift */; };
+		CE7E7A45CF2EA4988707069F96A2884B /* LegacyFootprintEditingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6A70A29EB8766EE8CF7BA0A9A07BBD6 /* LegacyFootprintEditingTests.swift */; };
 		CE8C13C8988295025C73ECD9C1DAECEC /* TasksUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CAE60043968FD335389DA8E27518DD4 /* TasksUITests.swift */; };
 		CF35A6E609F5F50FD409032E2CCABA65 /* RoomScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17F02EFDDECEC88C0DF4D49C1A24A2E3 /* RoomScene.swift */; };
 		D04678AC028D1DE97BFFF60B093637AB /* ShopPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80C50DA807983BB8CC67225330F0391 /* ShopPresentation.swift */; };
@@ -317,6 +319,7 @@
 		F7A4A76B03B783D84AB24A7BA0B758FB /* FurnitureArtwork68Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ED1A2C90B5490E9E5C140DB66BA2582 /* FurnitureArtwork68Tests.swift */; };
 		F871D67641BB671E25A0B5DECA6951C7 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 49FCCEEB04197D12EDD88AE993EABD81 /* PrivacyInfo.xcprivacy */; };
 		F8A2AED4122FD23529965A6FEE569B62 /* SharedHomeNoticeStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C09E497996EA349CDB52AE9A6CD94B64 /* SharedHomeNoticeStoreTests.swift */; };
+		F8E0E71B93405916DD64DDFE1F2EE8F5 /* LegacyMirroredLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29F087BB013442710452E5E76D22EBE7 /* LegacyMirroredLayoutTests.swift */; };
 		F98017800C312841C7ADBAADD9379574 /* CatCollectionBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97D9A42BC6A702180253E11DCA95E9A /* CatCollectionBadgeTests.swift */; };
 		F9980E72A57BD954064C6C4158890D2D /* TownEventDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30E51F12A75CF961D51F3979661396A1 /* TownEventDetailView.swift */; };
 		FA0CC9540D49E6B3876B89919606B92B /* AppRelease.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CAEFDCCAD581FD7A99D1F61F95C6223 /* AppRelease.swift */; };
@@ -413,6 +416,7 @@
 		28BCC85C270A66F951E53702E3D3C933 /* HomeHUD63UITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HomeHUD63UITests.swift; sourceTree = "<group>"; };
 		29437FCE77172534C642EE9CE2ABE66F /* RoomResidentPlanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RoomResidentPlanner.swift; path = Scene/RoomResidentPlanner.swift; sourceTree = "<group>"; };
 		29AE1FB097416C25F12B4145797C3C84 /* RoomStageLayoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoomStageLayoutTests.swift; sourceTree = "<group>"; };
+		29F087BB013442710452E5E76D22EBE7 /* LegacyMirroredLayoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LegacyMirroredLayoutTests.swift; sourceTree = "<group>"; };
 		2B2BCD3F386C50C24358477D1BA9C3B3 /* PlayChoicesSheet68.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PlayChoicesSheet68.swift; path = Views/PlayChoicesSheet68.swift; sourceTree = "<group>"; };
 		2C021441A34009F1159B9243789064F6 /* FurnitureLayoutUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FurnitureLayoutUITests.swift; sourceTree = "<group>"; };
 		2C2101720FD27D150A12ED42F24937A4 /* GameStore+HomeInventory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = "GameStore+HomeInventory.swift"; path = "Store/GameStore+HomeInventory.swift"; sourceTree = "<group>"; };
@@ -634,6 +638,7 @@
 		E400A3232DC0F2FC8EE1DD09562BAE41 /* RoomDragProjectionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoomDragProjectionTests.swift; sourceTree = "<group>"; };
 		E64B658DE72F83E67FA4DED0F86CD12B /* HomeFloorBoundaryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HomeFloorBoundaryTests.swift; sourceTree = "<group>"; };
 		E67FE1F383B2163A24CF18F815CFF8A8 /* FrontRoomModeReviewUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FrontRoomModeReviewUITests.swift; sourceTree = "<group>"; };
+		E6A70A29EB8766EE8CF7BA0A9A07BBD6 /* LegacyFootprintEditingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LegacyFootprintEditingTests.swift; sourceTree = "<group>"; };
 		E77BE00B93E0E62972E773CCBA64CDC8 /* RoomWorldGeometry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RoomWorldGeometry.swift; path = Scene/RoomWorldGeometry.swift; sourceTree = "<group>"; };
 		E8345EA751E4FCBA389F024D81F5A6BD /* SaveStatusBanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SaveStatusBanner.swift; path = Views/SaveStatusBanner.swift; sourceTree = "<group>"; };
 		E8B990729B033A550668C771C1130DB5 /* SaveRecoveryUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SaveRecoveryUITests.swift; sourceTree = "<group>"; };
@@ -662,6 +667,7 @@
 		F843B0F9D6D927B9886CDFB8127D35A6 /* GameStrings+English.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = "GameStrings+English.swift"; path = "Localization/GameStrings+English.swift"; sourceTree = "<group>"; };
 		F8F9BF5AB016D8B3F32236F7FECE33AD /* OnboardingSpotlightLayoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingSpotlightLayoutTests.swift; sourceTree = "<group>"; };
 		F9DDE9BBBD49FAE34DB2D08D979C3480 /* GameStrings+Careers57.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = "GameStrings+Careers57.swift"; path = "Localization/GameStrings+Careers57.swift"; sourceTree = "<group>"; };
+		FA3C164DB43E72EF4711AD64351D2B0B /* LegacyMirroredLayoutUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LegacyMirroredLayoutUITests.swift; sourceTree = "<group>"; };
 		FC6FB9C5F25D9E89797ACE890E92F4F8 /* RoomArrangementGeometry68.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RoomArrangementGeometry68.swift; path = Scene/RoomArrangementGeometry68.swift; sourceTree = "<group>"; };
 		FDE5C91D57C0D1DCC474672891FC8F56 /* SharedHomePresentation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SharedHomePresentation.swift; path = Views/SharedHomePresentation.swift; sourceTree = "<group>"; };
 		FECACA2F02DFE0AF2EFCA645B3DAA4C6 /* GameNoticeCenterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameNoticeCenterTests.swift; sourceTree = "<group>"; };
@@ -744,6 +750,8 @@
 				809CF9F1444C239C51DBCABED1EB6733 /* HomePlayModalClockTests.swift */,
 				A120CA4E214DB6A340EC606F106ECB0C /* HomePurchaseFloorTests.swift */,
 				5FE20163C75926F4E8910E5503980845 /* HomeRoomLayoutTests.swift */,
+				E6A70A29EB8766EE8CF7BA0A9A07BBD6 /* LegacyFootprintEditingTests.swift */,
+				29F087BB013442710452E5E76D22EBE7 /* LegacyMirroredLayoutTests.swift */,
 				74D2C06BF8B266B93211A65AAFB671FD /* MarketDesign55Tests.swift */,
 				EB58737C3629263846999E96D91C0864 /* MemoryNotice68Tests.swift */,
 				3FA4308FAB6DE74DA355E200025D9337 /* NewFurnitureGeometryTests.swift */,
@@ -849,6 +857,7 @@
 				653AB15E1D8C80D97BB5901BA279ADDA /* HospitalUITests.swift */,
 				7D490D34EC1259861BB21AF0C9088C4B /* IntegratedRoom62UITests.swift */,
 				0324528FAB825A2A69652B9D8E4EF0CC /* InventoryUITests.swift */,
+				FA3C164DB43E72EF4711AD64351D2B0B /* LegacyMirroredLayoutUITests.swift */,
 				C3AB2B832598F845135E7A44A0978AF2 /* OnboardingUITests.swift */,
 				E3E2DB587A7D2A2AA2E7E2078C296D70 /* PlayerNameUITests.swift */,
 				01F483019BCA8916FE741353A8B32C20 /* PlayerProfileUITests.swift */,
@@ -1275,6 +1284,8 @@
 				21CC541686178991DF1A9214227D046E /* HomePlayModalClockTests.swift in Sources */,
 				2E5F112B35E73CF1F193B60FEB50A962 /* HomePurchaseFloorTests.swift in Sources */,
 				0349B7F2670A2F89EC2D51B566645F18 /* HomeRoomLayoutTests.swift in Sources */,
+				CE7E7A45CF2EA4988707069F96A2884B /* LegacyFootprintEditingTests.swift in Sources */,
+				F8E0E71B93405916DD64DDFE1F2EE8F5 /* LegacyMirroredLayoutTests.swift in Sources */,
 				4B629CD1FFF2DDC4E54BFA5BA16EE869 /* MarketDesign55Tests.swift in Sources */,
 				B94A69552B1730EEE5CBB4A9942F413F /* MemoryNotice68Tests.swift in Sources */,
 				77896862B648B8A22F5497C2F135BC71 /* NewFurnitureGeometryTests.swift in Sources */,
@@ -1535,6 +1546,7 @@
 				743613A3C047ED8D36A0C26D032CB035 /* HospitalUITests.swift in Sources */,
 				7F519DF2B6D6386461390DD2C2E06224 /* IntegratedRoom62UITests.swift in Sources */,
 				574438061EDA612641CDA715331A9466 /* InventoryUITests.swift in Sources */,
+				79BD71F965EC74C8E8F361F2105EB886 /* LegacyMirroredLayoutUITests.swift in Sources */,
 				B9BE606F8E22FF459D306A06019262BE /* OnboardingUITests.swift in Sources */,
 				A56511D046B68F52E148FDAAC4508710 /* PlayerNameUITests.swift in Sources */,
 				7A38D4F7968FBA452AC1879765AA9E66 /* PlayerProfileUITests.swift in Sources */,

@@ -249,7 +249,7 @@ final class RoomSceneDiagnostics {
             let world = worldPoint(node.position)
             let footprint = state.furnitureWorld.footprint(item)
             return ["id": item.id, "kind": item.kind.rawValue,
-                    "orientation": item.orientation.rawValue,
+                    "orientation": item.orientation.rawValue, "usesLegacyFootprint": item.usesLegacyFootprint,
                     "x": screen["x"]!, "y": screen["y"]!,
                     "worldX": world["x"]!, "worldY": world["y"]!,
                     "width": node.size.width, "height": node.size.height,

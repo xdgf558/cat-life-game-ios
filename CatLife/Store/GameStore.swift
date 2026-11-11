@@ -336,7 +336,18 @@ final class GameStore {
         value.home.bowlPosition = value.home.bowlPosition(on: visibleHomeFloor) ?? value.home.bowlPosition
         value.home.furniture = value.home.placements(on: visibleHomeFloor)
         if let draftBowlPosition { value.home.bowlPosition = draftBowlPosition }
-        if let draftFurniture { value.home.furniture = draftFurniture }
+        if let draftFurniture {
+            for index in value.inventory.furniture.indices {
+                let item = value.inventory.furniture[index]
+                let previous = snapshot?.home.furniture.first { $0.itemID == item.id }
+                let current = draftFurniture.first { $0.itemID == item.id }
+                // The scene omits the other floor; omission is not a move.
+                if previous?.floor == visibleHomeFloor || current != nil {
+                    value.inventory.furniture[index] = item.applyingPlacement(from: previous, to: current)
+                }
+            }
+            value.home.furniture = draftFurniture
+        }
         if let draftFurnitureOrientations {
             for index in value.inventory.furniture.indices {
                 if let orientation = draftFurnitureOrientations[value.inventory.furniture[index].id] {
@@ -384,7 +395,8 @@ final class GameStore {
         return draftBowlPosition != snapshot.home.bowlPosition(on: visibleHomeFloor)
             || draftFurniture != snapshot.home.placements(on: visibleHomeFloor)
             || (draftFurnitureOrientations ?? [:]).contains { id, direction in
-                snapshot.inventory.furniture.first(where: { $0.id == id })?.orientation != direction
+                let original = snapshot.inventory.furniture.first { $0.id == id }
+                return original?.orientation != direction || original?.usesLegacyFootprint == true
             }
     }
 

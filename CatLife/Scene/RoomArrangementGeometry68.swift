@@ -70,6 +70,8 @@ struct RoomArrangementResolution68: Sendable {
 enum RoomArrangementPlanning68 {
     static func issue(id: String?, at point: CGPoint, world: RoomFurnitureWorld) -> ArrangementIssue68? {
         guard point.x.isFinite, point.y.isFinite else { return .outside }
+        // A real move adopts the new footprint before any bounds/overlap check.
+        let world = id.map { world.replacing($0, with: point) } ?? world
         let item = id.flatMap(world.item)
         let wall = item.map { FurnitureCatalog.metadata(for: $0.kind).isWall } ?? false
         let center = item == nil ? world.roomFloor.bowlGround(at: point) : point

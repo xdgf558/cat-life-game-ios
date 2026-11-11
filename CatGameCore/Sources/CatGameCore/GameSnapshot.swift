@@ -63,6 +63,14 @@ public struct GameSnapshot: Codable, Equatable, Sendable {
         activeCatID = selected.flatMap { id in decodedCats.first { $0.id == id }?.id } ?? decodedCats.first?.id ?? ""
         inventory = try InventoryState(from: values.superDecoder(forKey: .inventory), schemaVersion: version)
         home = try HomeState(from: values.superDecoder(forKey: .home), schemaVersion: version)
+        let placedIDs = Set(home.furniture.map(\.itemID))
+        if version < 15 {
+            for index in inventory.furniture.indices where !placedIDs.contains(inventory.furniture[index].id) {
+                inventory.furniture[index] = inventory.furniture[index].usingCurrentFootprint()
+            }
+        } else if inventory.furniture.contains(where: { $0.usesLegacyFootprint && !placedIDs.contains($0.id) }) {
+            throw SaveRepositoryError.invalidSnapshot
+        }
         // The original starter cushion is cropped off the full-height room.
         // Only migrate the complete untouched starter layout; a moved, stored
         // or newly placed item makes the player's arrangement authoritative.

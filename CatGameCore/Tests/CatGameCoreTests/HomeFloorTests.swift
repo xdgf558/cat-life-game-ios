@@ -55,7 +55,7 @@ struct HomeFloorTests {
             }
             old["home"] = home
             let migrated = try decode(old)
-            #expect(migrated == expected)
+            #expect(migrated == (try expectedLegacyFootprintMigration(expected)))
             #expect(migrated.home.availableFloors == [.ground] && migrated.home.upperBowlPosition == nil)
             #expect(migrated.home.furniture.allSatisfy { $0.floor == .ground })
             #expect(try NativeSaveCodec.decodeSnapshot(NativeSaveCodec.encoder().encode(migrated), now: now) == migrated)
