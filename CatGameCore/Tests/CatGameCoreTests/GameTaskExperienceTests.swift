@@ -15,7 +15,7 @@ struct GameTaskExperienceTests {
     func reload(_ state: GameSnapshot, schema: Int = GameSnapshot.currentSchemaVersion) throws -> GameSnapshot {
         var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
         object["schemaVersion"] = schema
-        return try JSONDecoder().decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+        return try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(object))
     }
 
     @Test func westwardTravelKeepsImmediateCareAndExistingClaimsInTheOpenDay() throws {

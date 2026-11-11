@@ -73,8 +73,8 @@ struct RoomFurnitureWorld: Sendable {
     func center(_ id: String) -> CGPoint? { placements.first { $0.itemID == id }.map { transform.point($0.position) } }
 
     func footprint(_ item: FurnitureItem) -> CGSize {
-        let spec = RoomFurnitureSpec.forItem(item)
-        return CGSize(width: spec.footprint.width * transform.visualScale, height: spec.footprint.height * transform.visualScale)
+        let size = FurnitureCatalog.footprint(for: item).artworkSize
+        return CGSize(width: size.width * transform.visualScale, height: size.height * transform.visualScale)
     }
 
     func rectangle(_ item: FurnitureItem, at center: CGPoint) -> CGRect {
@@ -92,11 +92,12 @@ struct RoomFurnitureWorld: Sendable {
     }
 
     var wallPolygon: [CGPoint] {
-        let points: [NormalizedPoint] = [
-            .init(x: 0.47, y: 0.11), .init(x: 0.98, y: 0.278),
-            .init(x: 0.98, y: 0.512), .init(x: 0.47, y: 0.343)
-        ]
-        return RoomFloor.clip(points.map(transform.point), to: CGRect(x: 8, y: 8,
+        let ground = [NormalizedPoint(x: 0, y: 785.0 / 1536),
+                      .init(x: 442.0 / 1024, y: 530.0 / 1536),
+                      .init(x: 1, y: 825.0 / 1536)].map(transform.point)
+        let height = 384 * transform.scale
+        let points = ground + ground.reversed().map { CGPoint(x: $0.x, y: $0.y + height) }
+        return RoomFloor.clip(points, to: CGRect(x: 8, y: 8,
                           width: max(1, transform.sceneSize.width - 16),
                           height: max(1, transform.sceneSize.height - 16)))
     }
@@ -124,10 +125,43 @@ struct RoomFurnitureWorld: Sendable {
     }
 
     func replacing(_ id: String, with center: CGPoint) -> Self {
+        let floor = placements.first { $0.itemID == id }?.floor ?? .ground
         var updated = placements.filter { $0.itemID != id }
-        updated.append(.init(itemID: id, position: transform.normalized(center)))
+        updated.append(.init(itemID: id, position: transform.normalized(center), floor: floor))
         return Self(transform: transform, catWidth: catWidth, bowlSize: bowlSize, bowlPosition: bowlPosition,
                     items: items, placements: updated)
+    }
+
+    func replacingOrientation(_ id: String, with orientation: FurnitureOrientation) -> Self {
+        var updated = items
+        guard let index = updated.firstIndex(where: { $0.id == id }),
+              orientation == .front || updated[index].kind.supportsRotation else { return self }
+        updated[index].orientation = orientation
+        return Self(transform: transform, catWidth: catWidth, bowlSize: bowlSize, bowlPosition: bowlPosition,
+                    items: updated, placements: placements)
+    }
+
+    /// Floor rotation happens in grid axes, before the legacy 128×64 projection.
+    func rotatedFloorOffset(_ offset: CGPoint, by orientation: FurnitureOrientation) -> CGPoint {
+        guard orientation != .front else { return offset }
+        let grid = CGPoint(x: offset.x / (128 * transform.visualScale),
+                           y: offset.y / (64 * transform.visualScale))
+        let rotated = orientation.rotatedOffset(grid)
+        return CGPoint(x: rotated.x * 128 * transform.visualScale,
+                       y: rotated.y * 64 * transform.visualScale)
+    }
+
+    func rotatedFloorPoint(_ point: CGPoint, around center: CGPoint, by orientation: FurnitureOrientation) -> CGPoint {
+        let offset = rotatedFloorOffset(CGPoint(x: point.x - center.x, y: point.y - center.y), by: orientation)
+        return CGPoint(x: center.x + offset.x, y: center.y + offset.y)
+    }
+
+    private func rotatedFloorRectangle(_ rectangle: CGRect, around center: CGPoint,
+                                       by orientation: FurnitureOrientation) -> CGRect {
+        let point = rotatedFloorPoint(CGPoint(x: rectangle.midX, y: rectangle.midY), around: center, by: orientation)
+        let size = rotatedFloorOffset(CGPoint(x: rectangle.width, y: rectangle.height), by: orientation)
+        return CGRect(x: point.x - abs(size.x) / 2, y: point.y - abs(size.y) / 2,
+                      width: abs(size.x), height: abs(size.y))
     }
 
     func resolve(id: String?, near point: CGPoint, catAt cat: CGPoint,
@@ -181,6 +215,7 @@ struct RoomFurnitureRest: Sendable {
     let entryContactProgress: CGFloat
     /// Measured visible front-mattress band, independent of the actor's pose.
     let entrySupportBand: CGRect?
+    var entryOrientation: FurnitureOrientation = .front
 }
 
 extension RoomFurnitureWorld {
@@ -190,6 +225,8 @@ extension RoomFurnitureWorld {
         let floor = roomFloor
         let target = rectangle(item, at: center)
         let otherObstacles = floorObstacles(excluding: id) + [floor.bowlObstacle(at: bowlPosition)] + additionalObstacles
+        let inverse: FurnitureOrientation = item.orientation == .left ? .right : item.orientation == .right ? .left : item.orientation
+        let frontTarget = rotatedFloorRectangle(target, around: center, by: inverse)
         var point = center
         var elevation = catWidth * 0.14
         var contactProgress = CatFurnitureStepTimeline.defaultContactProgress
@@ -197,16 +234,16 @@ extension RoomFurnitureWorld {
         if item.kind == .catBed {
             let spec = RoomFurnitureSpec.forItem(item)
             let width = spec.width * transform.visualScale
-            // The unchanged bed PNG's alpha>24 crop is (86,44)..(1477,961).
-            // The low yellow opening is at y≈805 in source pixels, about .17
-            // up the cropped texture. The green vertical side is not support.
+            // Preserve the legacy vertical step calibration. New artwork uses
+            // mesh surface samples in the renderer for visible paw contact.
+            // The old alpha crop was (86,44)..(1477,961), with its rim at .17.
             let height = width * 917 / 1391
             let edgeY = center.y + height * (0.17 - spec.anchorY)
             supportBand = CGRect(x: center.x - width * 0.22,
                                  y: center.y + height * (0.155 - spec.anchorY),
                                  width: width * 0.44, height: height * 0.05)
-            let visualRestY = center.y + target.height * 0.16 + catWidth * 0.06
-            let stageY = target.minY - floor.catFootprint.height / 2
+            let visualRestY = center.y + frontTarget.height * 0.16 + catWidth * 0.06
+            let stageY = frontTarget.minY - floor.catFootprint.height / 2
                 - max(1, floor.catFootprint.height * 0.15)
             // Front-paw support normally holds at .14 of the validated entry. Solve
             // ground projection + physical elevation against the visible rim;
@@ -231,15 +268,38 @@ extension RoomFurnitureWorld {
             guard elevation.isFinite, elevation > 0, elevation <= catWidth * 0.55 else { return nil }
             point.y = visualRestY - elevation
         }
-        guard let plan = FurnitureRestPlanner.plan(floor: floor.polygon, obstacles: otherObstacles,
-                                                  target: target, footprint: floor.catFootprint,
-                                                  start: start, restPoint: point,
-                                                  preferredFacing: item.orientation == .mirrored ? -1 : 1) else { return nil }
-        return .init(item: item, plan: plan,
-                     navigation: RoomNavigation(floor: floor.polygon, obstacles: otherObstacles,
-                                                footprint: floor.catFootprint, cellSize: 7, precomputeGrid: false),
-                     target: target, elevation: elevation, entryContactProgress: contactProgress,
-                     entrySupportBand: supportBand)
+        let restPoint = rotatedFloorPoint(point, around: center, by: item.orientation)
+        let preferredFacing: CGFloat = item.orientation == .left ? -1 : 1
+        let directions = [item.orientation, item.orientation.turnedRight,
+                          item.orientation.turnedRight.turnedRight, item.orientation.turnedLeft]
+        // Round nests and cushions can use another rim, with the same complete
+        // floor/obstacle checks; a wall must never become a walk-through fallback.
+        for entryOrientation in directions {
+            guard !Task<Never, Never>.isCancelled else { return nil }
+            let inverse: FurnitureOrientation = entryOrientation == .left ? .right : entryOrientation == .right ? .left : entryOrientation
+            let localFloor = floor.polygon.map { rotatedFloorPoint($0, around: center, by: inverse) }
+            let localObstacles = otherObstacles.map { rotatedFloorRectangle($0, around: center, by: inverse) }
+            let localFootprint = rotatedFloorOffset(CGPoint(x: floor.catFootprint.width, y: floor.catFootprint.height), by: inverse)
+            guard let localPlan = FurnitureRestPlanner.plan(floor: localFloor, obstacles: localObstacles,
+                    target: rotatedFloorRectangle(target, around: center, by: inverse),
+                    footprint: CGSize(width: abs(localFootprint.x), height: abs(localFootprint.y)),
+                    start: rotatedFloorPoint(start, around: center, by: inverse),
+                    restPoint: rotatedFloorPoint(restPoint, around: center, by: inverse),
+                    preferredFacing: preferredFacing) else { continue }
+            func worldPoint(_ point: CGPoint) -> CGPoint { rotatedFloorPoint(point, around: center, by: entryOrientation) }
+            let stage = worldPoint(localPlan.stage)
+            let entryDX = restPoint.x - stage.x
+            let plan = FurnitureRestPlan(approach: localPlan.approach.map(worldPoint), entry: localPlan.entry.map(worldPoint),
+                exit: localPlan.exit.map(worldPoint), stage: stage, restPoint: restPoint,
+                facing: abs(entryDX) <= 0.000_001 ? preferredFacing : (entryDX > 0 ? 1 : -1))
+            let band = supportBand.map { rotatedFloorRectangle($0, around: center, by: entryOrientation) }
+            return .init(item: item, plan: plan,
+                         navigation: RoomNavigation(floor: floor.polygon, obstacles: otherObstacles,
+                                                    footprint: floor.catFootprint, cellSize: 7, precomputeGrid: false),
+                         target: target, elevation: elevation, entryContactProgress: contactProgress,
+                         entrySupportBand: band, entryOrientation: entryOrientation)
+        }
+        return nil
     }
 }
 

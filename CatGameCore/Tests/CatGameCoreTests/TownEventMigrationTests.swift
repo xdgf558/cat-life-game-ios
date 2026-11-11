@@ -10,7 +10,7 @@ struct TownEventMigrationTests {
         try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
     }
     func decode(_ object: [String: Any]) throws -> GameSnapshot {
-        try JSONDecoder().decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+        try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(object))
     }
 
     @Test func schema10AddsAnUncompletedDayWithoutTouchingOldProgress() throws {

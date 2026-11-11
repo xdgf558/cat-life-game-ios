@@ -22,6 +22,7 @@ final class RoomSceneViewLifecycleTests: XCTestCase {
         let cushion = try XCTUnwrap(scene.furnitureWorld.item("floorCushion"))
         XCTAssertNotNil(scene.furnitureWorld.restVisit(to: cushion.id, from: cat.position),
                         "The initial fixture must have a genuinely reachable cushion.")
+        scene.onRestRequest68 = { [weak scene] id in scene?.confirmFurnitureRest68(id) }
         scene.restInFurniture(kind: .floorCushion)
         try await eventually("Rest planning must publish an actual furniture visit.") { scene.activeRest != nil }
         XCTAssertEqual(scene.activeRest?.item.id, cushion.id)

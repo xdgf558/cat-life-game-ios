@@ -12,7 +12,7 @@ struct CatGrowthTests {
     }
 
     private func data(_ object: [String: Any]) throws -> Data {
-        try JSONSerialization.data(withJSONObject: object)
+        try snapshotFixtureData(object)
     }
 
     private func legacyData(_ state: GameSnapshot, schema: Int) throws -> Data {

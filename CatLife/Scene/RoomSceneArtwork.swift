@@ -21,7 +21,6 @@ final class RoomSceneArtwork {
     private var companionLabelSize: CGSize?
     private let upperWall = SKNode()
     private(set) var furnitureNodes: [String: SKSpriteNode] = [:]
-    private var furnitureScales: [String: CGFloat] = [:]
 
     func install(in scene: SKScene) {
         self.scene = scene
@@ -138,7 +137,6 @@ final class RoomSceneArtwork {
         let visible = Set(renderedFurniture.map(\.itemID))
         for id in Array(furnitureNodes.keys) where !visible.contains(id) && id != newPlacementID {
             furnitureNodes.removeValue(forKey: id)?.removeFromParent()
-            furnitureScales.removeValue(forKey: id)
         }
         for placement in renderedFurniture {
             guard let item = ownedFurniture.first(where: { $0.id == placement.itemID }) else { continue }
@@ -164,26 +162,16 @@ final class RoomSceneArtwork {
         let ratio = texture.size().height / max(1, texture.size().width)
         node.size = CGSize(width: width, height: width * ratio)
         node.anchorPoint = CGPoint(x: 0.5, y: spec.anchorY)
-        let scale: CGFloat = item.orientation == .mirrored ? -1 : 1
-        if furnitureScales[item.id] != scale {
-            node.removeAction(forKey: "orientation")
-            if animateOrientation, furnitureScales[item.id] != nil {
-                let action = SKAction.scaleX(to: scale, duration: 0.28)
-                action.timingMode = .easeOut
-                node.run(action, withKey: "orientation")
-            } else { node.xScale = scale }
-            furnitureScales[item.id] = scale
-        } else if !animateOrientation {
-            node.removeAction(forKey: "orientation")
-            node.xScale = scale
-        }
+        // The renderer owns real view/facing variants; simulation stays unmirrored.
+        node.removeAction(forKey: "orientation")
+        node.xScale = 1
         return node
     }
 
     func finishOrientationAnimations() {
-        for (id, node) in furnitureNodes {
+        for node in furnitureNodes.values {
             node.removeAction(forKey: "orientation")
-            node.xScale = furnitureScales[id] ?? 1
+            node.xScale = 1
         }
     }
 

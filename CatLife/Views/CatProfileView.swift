@@ -13,6 +13,7 @@ struct CatProfileView: View {
     private var cat: CatState? { store.snapshot?.cats.first { $0.id == catID } }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(spacing: 16) {
                 if let cat {
@@ -112,6 +113,14 @@ struct CatProfileView: View {
         .background(RoomTheme.cream)
         .accessibilityIdentifier("catProfileScroll").accessibilityValue(catID)
         .navigationTitle(GameStrings.text("catProfile.title")).navigationBarTitleDisplayMode(.inline)
+        .task {
+            guard store.inspectedMemoryCatID == catID else { return }
+            await Task.yield()
+            guard store.inspectedCatID == catID, store.inspectedMemoryCatID == catID else { return }
+            proxy.scrollTo("catMemoriesAnchor", anchor: .top)
+            store.inspectedMemoryCatID = nil
+        }
+        }
     }
 
     static func status(for cat: CatState) -> String {

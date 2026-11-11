@@ -194,8 +194,7 @@ struct InventoryView: View {
     }
 
     private func furnitureTile(_ item: FurnitureItem) -> some View {
-        let metadata = FurnitureCatalog.metadata(for: item.kind)
-        return tile(name: GameStrings.furnitureName(item), asset: metadata.assetName, symbol: "sofa.fill",
+        return tile(name: GameStrings.furnitureName(item), asset: FurnitureArtwork68.assetName(for: item), symbol: "sofa.fill",
                     badge: furnitureStatus(item.id, badge: true),
                     tint: RoomTheme.mint, selected: selection == .furniture(item.id)) {
             selection = .furniture(item.id)
@@ -283,7 +282,7 @@ struct InventoryView: View {
                 let onOtherFloor = floor != nil && floor != store.visibleHomeFloor
                 let actionKey = floor.map { $0 == store.visibleHomeFloor
                     ? "inventory.arrangeRoom" : "homeInventory.arrange.\($0.rawValue)" } ?? "inventory.placeFurniture"
-                actionBar(name: GameStrings.furnitureName(item), asset: FurnitureCatalog.metadata(for: item.kind).assetName,
+                actionBar(name: GameStrings.furnitureName(item), asset: FurnitureArtwork68.assetName(for: item),
                           symbol: "sofa.fill", detail: onOtherFloor && store.isDecorating
                               ? GameStrings.text("homeInventory.finishFloor")
                               : onOtherFloor && !store.roomFloorTravelReady

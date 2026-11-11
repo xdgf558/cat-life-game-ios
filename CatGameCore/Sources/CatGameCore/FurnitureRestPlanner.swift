@@ -11,6 +11,16 @@ public struct FurnitureRestPlan: Sendable {
     public let stage: CGPoint
     public let restPoint: CGPoint
     public let facing: CGFloat
+
+    public init(approach: [CGPoint], entry: [CGPoint], exit: [CGPoint],
+                stage: CGPoint, restPoint: CGPoint, facing: CGFloat) {
+        self.approach = approach
+        self.entry = entry
+        self.exit = exit
+        self.stage = stage
+        self.restPoint = restPoint
+        self.facing = facing
+    }
 }
 
 public enum FurnitureRestPlanner {

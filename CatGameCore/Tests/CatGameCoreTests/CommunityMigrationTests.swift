@@ -10,14 +10,14 @@ struct CommunityMigrationTests {
         try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
     }
     func decode(_ object: [String: Any]) throws -> GameSnapshot {
-        try JSONDecoder().decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+        try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(object))
     }
 
-    @Test func schema14CompanionMigrationKeepsReviewedCommunityLedgers() throws {
+    @Test func schema15FurnitureMigrationKeepsReviewedCommunityLedgers() throws {
         // Freeze the v7 ledger independently of the catalog and fresh-save defaults.
         let schema7IDs = ["neighbor_grace", "neighbor_ken", "neighbor_luna", "neighbor_mira"]
-        #expect(GameSnapshot.currentSchemaVersion == 14,
-                "Review the v14 companionship migration before updating this schema guard; preserve the independent v7/v8/v10, v11 events and v12/v13 habit ledgers below.")
+        #expect(GameSnapshot.currentSchemaVersion == 15,
+                "Review v15 orientation migration before changing this guard; preserve the independent v7/v8/v10, v11 events, v12/v13 habits and v14 companionship ledgers.")
         #expect(CommunityCatalog.neighbors.map(\.id).sorted() == schema7IDs,
                 "Changing neighbors requires a schema/migration review, not just a new catalog entry.")
         let recordedRelationship: [String: Any] = [
@@ -45,7 +45,7 @@ struct CommunityMigrationTests {
         }
     }
 
-    @Test func frozenSchemaElevenEventsAndSchemaTwelveAndThirteenHabitLedgersSurviveSchemaFourteen() throws {
+    @Test func frozenSchemaElevenEventsAndSchemaTwelveAndThirteenHabitLedgersSurviveSchemaFifteen() throws {
         let schema12IDs = ["neighbor_grace", "neighbor_ken", "neighbor_luna", "neighbor_mira"]
         var original = GameSnapshot.fresh(now: now)
         original.home.furniture = FurnitureCatalog.legacyPlacementsV6
@@ -81,7 +81,7 @@ struct CommunityMigrationTests {
             }
             saved["cats"] = cats
             let loaded = try decode(saved)
-            #expect(loaded.isValid && loaded.schemaVersion == 14)
+            #expect(loaded.isValid && loaded.schemaVersion == 15)
             #expect(loaded.community == original.community)
             #expect(loaded.home.furniture == (schema < 13 ? FurnitureCatalog.frontPlacementsV13 : FurnitureCatalog.legacyPlacementsV6))
             #expect(loaded.player == original.player && loaded.inventory == original.inventory && loaded.tasks == original.tasks)

@@ -98,12 +98,36 @@ final class RoomStageLayoutTests: XCTestCase {
         }
     }
 
+    func testArrangementUsesTheMeasuredHeaderAndTrayInsteadOfTheOldFixedTopInset() {
+        for size in [CGSize(width: 375, height: 667), CGSize(width: 402, height: 840)] {
+            for header: CGFloat in [112, 160, 248] {
+                for tray: CGFloat in [56, 240, 340] {
+                    let usable = RoomStageLayout.arrangementUsableRect(in: size, bottomInset: tray, topInset: header)
+                    XCTAssertEqual(usable.minY, header)
+                    let controls = RoomStageLayout.arrangementControlsFrame(in: size, topInset: header, bottomInset: tray)
+                    XCTAssertEqual(usable.maxY, controls.minY - 8, accuracy: 0.001)
+                    XCTAssertEqual(controls.maxY, size.height - tray - 12, accuracy: 0.001)
+                    XCTAssertGreaterThanOrEqual(controls.height, 44)
+                    XCTAssertFalse(usable.intersects(controls))
+                    XCTAssertTrue(CGRect(origin: .zero, size: size).contains(controls))
+                    XCTAssertTrue(CGRect(origin: .zero, size: size).contains(usable))
+                }
+            }
+        }
+        let cramped = RoomStageLayout.arrangementUsableRect(in: CGSize(width: 375, height: 400), bottomInset: 280, topInset: 320)
+        XCTAssertTrue(CGRect(x: 0, y: 0, width: 375, height: 400).contains(cramped))
+        XCTAssertEqual(cramped.minY, 320)
+    }
+
     func testArrangementStillReservesTheFullScreenHeaderAndFurnitureTray() {
         for size in [CGSize(width: 375, height: 603), CGSize(width: 402, height: 776)] {
             for tray: CGFloat in [98, 180, 288] {
                 let usable = RoomStageLayout.arrangementUsableRect(in: size, bottomInset: tray)
                 XCTAssertEqual(usable.minY, 160)
-                XCTAssertEqual(usable.maxY, size.height - tray - 12, accuracy: 0.001)
+                let controls = RoomStageLayout.arrangementControlsFrame(in: size, topInset: 160, bottomInset: tray)
+                XCTAssertEqual(usable.maxY, controls.minY - 8, accuracy: 0.001)
+                XCTAssertEqual(controls.maxY, size.height - tray - 12, accuracy: 0.001)
+                XCTAssertFalse(usable.intersects(controls))
                 XCTAssertTrue(CGRect(origin: .zero, size: size).contains(usable))
                 XCTAssertGreaterThanOrEqual(usable.height, 80)
             }

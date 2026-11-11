@@ -12,6 +12,12 @@ final class RoomPresentationRenderer {
     private var mirrors: [String: RoomNodeMirror] = [:]
     private var objectFrames: [String: CGRect] = [:]
     private var objectDepths: [String: CGFloat] = [:]
+    private var groundAnchors: [String: CGPoint] = [:]
+    private var artworkNames: [String: String] = [:]
+    private var artworkAngles: [String: RoomViewAngle] = [:]
+    private var contactShadows: [String: RoomContactShadow68] = [:]
+    private let arrangementArtwork68 = RoomArrangementRendering68()
+    private let furnitureContact68 = RoomFurnitureContact68()
     private(set) var projection = RoomViewProjection(worldSize: CGSize(width: 390, height: 480), angle: .front)
     private var worldSize = CGSize.zero
     private var viewport = CGSize.zero
@@ -46,6 +52,7 @@ final class RoomPresentationRenderer {
         root.addChild(backdrop)
         root.addChild(content)
         content.addChild(shell)
+        content.addChild(arrangementArtwork68)
     }
 
     func configure(world: CGSize, viewport: CGSize, floor: [CGPoint], angle: RoomViewAngle, level: Int,
@@ -107,32 +114,86 @@ final class RoomPresentationRenderer {
                 items: [FurnitureItem], bowl: SKSpriteNode, bowlFront: SKSpriteNode, restFront: SKSpriteNode,
                 selection: SKShapeNode, toy: SKSpriteNode, feeding: Bool, rest: RoomFurnitureRest?,
                 selectedID: String? = nil, particles: [SKNode] = [],
-                companionRing: SKShapeNode? = nil, companionPlaque: SKShapeNode? = nil) {
+                companionRing: SKShapeNode? = nil, companionPlaque: SKShapeNode? = nil,
+                world: RoomFurnitureWorld? = nil, editing: Bool = false, bowlSelected: Bool = false,
+                placementIssues: [String: ArrangementIssue68] = [:], bowlHasFood: Bool = false,
+                reducedMotion: Bool = false) {
         var active = Set<String>()
-        func sync(_ key: String, _ source: SKNode, anchor: CGPoint? = nil, depth: CGFloat? = nil) {
+        func sync(_ key: String, _ source: SKNode, anchor: CGPoint? = nil, depth: CGFloat? = nil,
+                  variant: FurnitureArtwork68.Variant? = nil, lift: CGFloat = 0) {
             active.insert(key)
             let mirror: RoomNodeMirror
             if let existing = mirrors[key] { mirror = existing }
             else { mirror = RoomNodeMirror(source); mirrors[key] = mirror; content.addChild(mirror.node) }
-            mirror.synchronize(source, root: true)
+            mirror.synchronize(source, root: true, copyingSprite: variant == nil)
             mirror.node.name = key
             mirror.node.position = anchor ?? projection.project(source.position)
+            groundAnchors[key] = mirror.node.position
+            mirror.node.position.y += lift
             mirror.node.zPosition = depth ?? 10_000 - projection.projectedDepth(source.position)
+            if let variant, let source = source as? SKSpriteNode, let sprite = mirror.node as? SKSpriteNode {
+                sprite.texture = variant.texture
+                sprite.size = variant.size(referenceWidth: source.size.width)
+                sprite.anchorPoint = variant.anchorPoint
+                sprite.xScale = 1; sprite.yScale = 1; sprite.warpGeometry = nil
+                // Crossfade real model renders, rather than flattening through a negative x scale.
+                if let old = artworkNames[key], old != variant.assetName,
+                   artworkAngles[key] == projection.angle, !reducedMotion {
+                    sprite.removeAction(forKey: "turn68")
+                    sprite.alpha = source.alpha * 0.35
+                    sprite.run(.fadeAlpha(to: source.alpha, duration: 0.2), withKey: "turn68")
+                }
+                if reducedMotion || artworkAngles[key] != projection.angle {
+                    sprite.removeAction(forKey: "turn68")
+                    sprite.alpha = source.alpha
+                }
+                artworkNames[key] = variant.assetName
+                artworkAngles[key] = projection.angle
+            }
             objectFrames[key] = mirror.node.calculateAccumulatedFrame()
             objectDepths[key] = mirror.node.zPosition
         }
         for (id, node) in furniture {
-            let wall = items.first { $0.id == id }.map { FurnitureCatalog.metadata(for: $0.kind).isWall } ?? false
-            sync("furniture-" + id, node, anchor: wall ? projection.wallPoint(node.position) : nil,
-                 depth: wall ? 100 : nil)
+            guard let item = items.first(where: { $0.id == id }) else { sync("furniture-" + id, node); continue }
+            let wall = FurnitureCatalog.metadata(for: item.kind).isWall
+            let placement = world?.placements.first { $0.itemID == id }
+            // The rectified front room has one flat wall; side views expose its two physical surfaces.
+            let artworkPlacement = wall && projection.frontFloor != nil ? nil : placement
+            let variant = world == nil ? nil : FurnitureArtwork68.variant(for: item, angle: projection.angle, placement: artworkPlacement)
+            let key = "furniture-" + id
+            let selected = editing && selectedID == id
+            sync(key, node, anchor: wall ? projection.wallPoint(node.position) : nil,
+                 depth: wall ? 100 : nil, variant: variant,
+                 lift: selected && !wall ? max(5, node.size.width * 0.06) : 0)
+            if !wall {
+                let shadow: RoomContactShadow68
+                if let old = contactShadows[id] { shadow = old }
+                else { shadow = RoomContactShadow68(); contactShadows[id] = shadow; content.addChild(shadow) }
+                let footprint = world?.footprint(item) ?? CGSize(width: node.size.width * 0.65, height: node.size.width * 0.25)
+                shadow.update(center: projection.project(node.position), size: footprint,
+                              selected: selected, hidden: node.isHidden, alpha: node.alpha)
+            }
+        }
+        for id in Array(contactShadows.keys) where id != "bowl" && furniture[id] == nil {
+            contactShadows.removeValue(forKey: id)?.removeFromParent()
         }
         let bowlPoint = projection.project(bowl.position)
         let bowlDepth = 10_000 - projection.projectedDepth(bowl.position)
-        sync("bowl", bowl, anchor: bowlPoint, depth: bowlDepth)
-        sync("bowl-front", bowlFront,
-             anchor: CGPoint(x: bowlPoint.x + bowlFront.position.x - bowl.position.x,
-                             y: bowlPoint.y + bowlFront.position.y - bowl.position.y),
+        let bowlVariant = world == nil ? nil : FurnitureArtwork68.bowlVariant(hasFood: bowlHasFood, angle: projection.angle)
+        sync("bowl", bowl, anchor: bowlPoint, depth: bowlDepth, variant: bowlVariant)
+        if let world {
+            let shadow = contactShadows["bowl"] ?? RoomContactShadow68()
+            if contactShadows["bowl"] == nil { contactShadows["bowl"] = shadow; content.addChild(shadow) }
+            shadow.update(center: projection.project(world.roomFloor.bowlGround(at: bowl.position)),
+                          size: world.roomFloor.bowlFootprint, selected: editing && bowlSelected,
+                          hidden: bowl.isHidden, alpha: bowl.alpha)
+        }
+        sync("bowl-front", bowlFront, anchor: bowlPoint,
              depth: bowlDepth + min(1, max(-1, bowlFront.zPosition - bowl.zPosition)))
+        if let bowlVariant {
+            setFrontSlice68(key: "bowl-front", variant: bowlVariant, referenceWidth: bowl.size.width,
+                            surface: "foodSurfaceCenter", defaultFraction: 0.45)
+        }
         var catAnchor = projection.project(cat.position)
         var catDepth = 10_000 - projection.projectedDepth(cat.position)
         // A calibrated mouth/paw contact is local artwork space, not a second
@@ -153,7 +214,19 @@ final class RoomPresentationRenderer {
                     + min(2, max(-2, cat.zPosition - target.zPosition))
             }
         }
+        let restingNode = rest.flatMap { furniture[$0.item.id] }
+        let restVariant = world == nil ? nil : rest.flatMap { visit in
+            FurnitureArtwork68.variant(for: visit.item, angle: projection.angle,
+                placement: world?.placements.first { $0.itemID == visit.item.id })
+        }
+        let contactOffset = furnitureContact68.update(cat: cat, rest: rest, furniture: restingNode,
+            variant: restVariant, referenceWidth: restingNode?.size.width ?? 1,
+            bowl: bowl, bowlVariant: bowlVariant, feeding: feeding)
+        catAnchor.x += contactOffset.x; catAnchor.y += contactOffset.y
         sync("cat", cat, anchor: catAnchor, depth: catDepth)
+        if let sprite = mirrors["cat"]?.mirroredNode(for: cat.renderSprite68) as? SKSpriteNode {
+            furnitureContact68.applyPawCorrection(to: sprite, sourceSprite: cat.renderSprite68)
+        }
         if let companionRing {
             sync("companion-ring", companionRing, anchor: catAnchor, depth: catDepth - 0.5)
         }
@@ -165,13 +238,20 @@ final class RoomPresentationRenderer {
         for (id, actor) in residents.actors { sync("resident-" + id, actor) }
         if let rest, let target = furniture[rest.item.id] {
             let base = projection.project(target.position)
-            sync("rest-front", restFront,
-                 anchor: CGPoint(x: base.x + restFront.position.x - target.position.x,
-                                 y: base.y + restFront.position.y - target.position.y), depth: catDepth + 0.2)
+            sync("rest-front", restFront, anchor: base, depth: catDepth + 0.2)
+            if let variant = FurnitureArtwork68.variant(for: rest.item, angle: projection.angle,
+                placement: world?.placements.first { $0.itemID == rest.item.id }) {
+                setFrontSlice68(key: "rest-front", variant: variant, referenceWidth: target.size.width,
+                                surface: "frontEntrySurface", defaultFraction: 0.22)
+            }
         }
         let selectedWall = selectedID.flatMap { id in items.first { $0.id == id } }
             .map { FurnitureCatalog.metadata(for: $0.kind).isWall } ?? false
         sync("selection", selection, anchor: selectedWall ? projection.wallPoint(selection.position) : nil, depth: 25_000)
+        mirrors["selection"]?.node.isHidden = true
+        arrangementArtwork68.update(world: world, projection: projection, editing: editing,
+            selectedID: selectedID, bowlSelected: bowlSelected, issues: placementIssues,
+            previewCenter: selectedID.flatMap { furniture[$0]?.position } ?? (bowlSelected ? bowl.position : nil))
         sync("toy", toy)
         for particle in particles {
             sync("particle-\(ObjectIdentifier(particle))", particle,
@@ -181,6 +261,7 @@ final class RoomPresentationRenderer {
         for key in Array(mirrors.keys) where !active.contains(key) {
             mirrors.removeValue(forKey: key)?.node.removeFromParent()
             objectFrames.removeValue(forKey: key); objectDepths.removeValue(forKey: key)
+            groundAnchors.removeValue(forKey: key); artworkNames.removeValue(forKey: key); artworkAngles.removeValue(forKey: key)
         }
         if projection.frontFloor != nil, framingNeedsUpdate, frontFramingBounds == nil || selection.isHidden {
             #if DEBUG
@@ -207,6 +288,20 @@ final class RoomPresentationRenderer {
         updateCamera()
     }
 
+    /// Keep only the near lip in front of an eating/resting cat, using the new mesh render.
+    private func setFrontSlice68(key: String, variant: FurnitureArtwork68.Variant,
+                                 referenceWidth: CGFloat, surface: String, defaultFraction: CGFloat) {
+        guard let sprite = mirrors[key]?.node as? SKSpriteNode else { return }
+        let size = variant.size(referenceWidth: referenceWidth)
+        let offset = variant.surfaceOffset(surface, referenceWidth: referenceWidth)
+        let fraction = min(0.8, max(0.08, offset.map { (variant.anchorPoint.y * size.height + $0.y - 2) / size.height } ?? defaultFraction))
+        sprite.texture = SKTexture(rect: CGRect(x: 0, y: 0, width: 1, height: fraction), in: variant.texture)
+        sprite.size = CGSize(width: size.width, height: size.height * fraction)
+        sprite.anchorPoint = CGPoint(x: variant.anchorPoint.x, y: variant.anchorPoint.y / fraction)
+        sprite.xScale = 1; sprite.yScale = 1
+        objectFrames[key] = sprite.calculateAccumulatedFrame()
+    }
+
     func updateCamera() {
         guard viewport.width > 0, camera.scale > 0 else { return }
         content.setScale(1 / camera.scale)
@@ -229,12 +324,13 @@ final class RoomPresentationRenderer {
 
     func displayedPoint(_ logicalPoint: CGPoint, source: SKNode, key: String) -> CGPoint? {
         guard let mirror = mirrors[key], !mirror.node.isHidden else { return nil }
+        let logicalPoint = (source as? CatActor).map { furnitureContact68.adjustedPoint(logicalPoint, cat: $0) } ?? logicalPoint
         return camera.viewPoint(projectedWorld: CGPoint(x: mirror.node.position.x + logicalPoint.x - source.position.x,
                                                        y: mirror.node.position.y + logicalPoint.y - source.position.y))
     }
 
     func anchor(_ key: String) -> CGPoint? {
-        mirrors[key].map { camera.viewPoint(projectedWorld: $0.node.position) }
+        groundAnchors[key].map { camera.viewPoint(projectedWorld: $0) }
     }
 
     func hit(screen: CGPoint, editing: Bool) -> String? {
@@ -266,20 +362,31 @@ final class RoomPresentationRenderer {
 @MainActor
 private final class RoomNodeMirror {
     let node: SKNode
+    private let sourceID: ObjectIdentifier
     private var children: [ObjectIdentifier: RoomNodeMirror] = [:]
 
     init(_ source: SKNode) {
+        sourceID = ObjectIdentifier(source)
         if source is SKSpriteNode { node = SKSpriteNode() }
         else if source is SKShapeNode { node = SKShapeNode() }
         else if source is SKLabelNode { node = SKLabelNode() }
         else { node = SKNode() }
     }
 
-    func synchronize(_ source: SKNode, root: Bool = false) {
+    func mirroredNode(for source: SKNode) -> SKNode? {
+        if ObjectIdentifier(source) == sourceID { return node }
+        if let direct = children[ObjectIdentifier(source)] { return direct.node }
+        for child in children.values {
+            if let found = child.mirroredNode(for: source) { return found }
+        }
+        return nil
+    }
+
+    func synchronize(_ source: SKNode, root: Bool = false, copyingSprite: Bool = true) {
         if !root { node.position = source.position; node.zPosition = source.zPosition }
         node.xScale = source.xScale; node.yScale = source.yScale; node.zRotation = source.zRotation
-        node.alpha = source.alpha; node.isHidden = source.isHidden
-        if let a = source as? SKSpriteNode, let b = node as? SKSpriteNode {
+        if node.action(forKey: "turn68") == nil { node.alpha = source.alpha }; node.isHidden = source.isHidden
+        if copyingSprite, let a = source as? SKSpriteNode, let b = node as? SKSpriteNode {
             if b.texture !== a.texture { b.texture = a.texture }
             b.size = a.size; b.anchorPoint = a.anchorPoint
             b.color = a.color; b.colorBlendFactor = a.colorBlendFactor; b.blendMode = a.blendMode

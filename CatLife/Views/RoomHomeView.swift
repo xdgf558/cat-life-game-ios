@@ -6,11 +6,19 @@ struct RoomHomeView: View {
     @Bindable var store: GameStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private struct PendingPlayChoice {
+        let choice: PlayChoice68
+        let generation: UUID
+        let catID: String
+    }
+    @State private var pendingPlayChoice: PendingPlayChoice?
     @State private var moreVisible = false
     @State private var townSelectedPlace: TownPlace = .home
     @State private var townLayer: TownLayer = .all
     @State private var catNeedPresentation = CatNeedPresentation()
     @State private var arrangementPanelHeight: CGFloat = 0
+    @State private var arrangementHeaderHeight: CGFloat = 160
+    @State private var normalReferenceStageSize = CGSize.zero
     @State private var normalHeaderHeight: CGFloat = 100
     @State private var saveTransferWorking = false
     #if DEBUG
@@ -69,6 +77,7 @@ struct RoomHomeView: View {
         }
         .onChange(of: scenePhase, initial: true) { _, phase in store.setForeground(phase == .active) }
         .onChange(of: store.saveSceneGeneration) { _, _ in
+            pendingPlayChoice = nil
             townSelectedPlace = .home
             townLayer = .all
         }
@@ -84,11 +93,22 @@ struct RoomHomeView: View {
                     .interactiveDismissDisabled(store.isBusy)
             }
         }
-        .confirmationDialog(GameStrings.text("catHabits.choosePlay"), isPresented: $store.showsPlayChoices, titleVisibility: .visible) {
-            Button(GameStrings.text("catHabits.quickPlay")) { store.play() }.accessibilityIdentifier("quickPlayChoice")
-            Button(GameStrings.text("catHabits.playTogether")) { Task { _ = await store.openPlayTogether() } }
-                .accessibilityIdentifier("playTogetherChoice")
-            Button(GameStrings.text("common.cancel"), role: .cancel) {}
+        .sheet(isPresented: $store.showsPlayChoices, onDismiss: completePlayChoice) {
+            PlayChoicesSheet68(store: store) { choice in
+                guard let cat = store.cat, !store.isBusy else { return }
+                pendingPlayChoice = PendingPlayChoice(choice: choice, generation: store.saveSceneGeneration, catID: cat.id)
+                store.showsPlayChoices = false
+            }
+            .presentationDetents([.large]).presentationDragIndicator(.visible)
+            .presentationBackground(RoomTheme.cream)
+            .interactiveDismissDisabled(store.isBusy)
+            .saveRecoveryAlert(store: store)
+        }
+        .sheet(isPresented: Binding(get: { store.habitGuideCatID != nil }, set: { if !$0 { store.habitGuideCatID = nil } })) {
+            if let cat = store.snapshot?.cats.first(where: { $0.id == store.habitGuideCatID }) {
+                HabitGuidePicker68(store: store, cat: cat)
+                    .presentationDetents([.large]).presentationDragIndicator(.visible)
+            }
         }
         .fullScreenCover(isPresented: $store.isShowingPlayTogether) {
             if let session = store.presentedPlaySession {
@@ -97,19 +117,33 @@ struct RoomHomeView: View {
         }
         .onChange(of: store.onboarding.isPresented, initial: true) { _, presented in
             if presented {
+                pendingPlayChoice = nil
                 moreVisible = false
                 store.supplyPicker = nil
                 store.showsPlayChoices = false
+                store.habitGuideCatID = nil
                 store.isShowingPlayTogether = false
                 store.activeSheet = nil
                 store.isShowingSettings = false
             }
         }
         .saveRecoveryAlert(store: store, isActive: !store.onboarding.isPresented
-                          && !store.isShowingPlayTogether && !store.showsPlayChoices
+                          && !store.isShowingPlayTogether && !store.showsPlayChoices && store.habitGuideCatID == nil
                           && store.inspectedCatID == nil && store.activeSheet != .town
                           && store.activeSheet != .player && store.supplyPicker == nil && !store.isPresentingExchange
                           && !store.isPresentingAdoptionConfirmation && !store.isPresentingCommunityGift)
+    }
+
+    private func completePlayChoice() {
+        guard let pending = pendingPlayChoice else { return }
+        pendingPlayChoice = nil
+        guard pending.generation == store.saveSceneGeneration, store.cat?.id == pending.catID,
+              store.isHabitInteractionActive, !store.onboarding.isPresented,
+              !store.isDecorating, !store.isBusy, !store.isChangingHomeFloor else { return }
+        switch pending.choice {
+        case .quick: store.play()
+        case .together: Task { _ = await store.openPlayTogether() }
+        }
     }
 
     private func shell(_ snapshot: GameSnapshot) -> some View {
@@ -117,7 +151,7 @@ struct RoomHomeView: View {
             // A keyboard on another page must not resize and cancel a paused cat action.
             GeometryReader { geometry in
                 room(snapshot)
-                    .frame(width: geometry.size.width, height: max(0, geometry.size.height - 64))
+                    .frame(width: geometry.size.width, height: max(0, geometry.size.height - (store.isDecorating ? 0 : 64)))
                     .opacity(homeVisible ? 1 : 0)
                     .allowsHitTesting(homeVisible && !moreVisible)
                     .accessibilityHidden(!homeVisible || moreVisible)
@@ -167,24 +201,12 @@ struct RoomHomeView: View {
                     GuideResumeBar(store: store)
                         .padding(.horizontal, 14).padding(.vertical, 6).background(RoomTheme.cream)
                 }
-                Group {
-                    if store.isDecorating {
-                        HStack(spacing: 14) {
-                            Button(GameStrings.text("layout.cancel")) { store.cancelDecorating(); store.activeSheet = nil }
-                                .buttonStyle(SoftButtonStyle()).accessibilityIdentifier("layoutCancelButton")
-                                .disabled(store.isSavingLayout)
-                            Button(GameStrings.text("layout.done")) { store.finishDecorating() }
-                                .frame(maxWidth: .infinity).buttonStyle(MintButtonStyle())
-                                .accessibilityIdentifier("layoutDoneButton")
-                                .disabled(store.isBusy || store.isResolvingLayout || store.placingFurnitureID != nil)
-                        }.padding(.horizontal, 16)
-                    } else {
-                        GameBottomBar(store: store, moreVisible: $moreVisible, select: select)
-                            .disabled(saveTransferWorking || store.saveTransferInProgress)
-                    }
+                if !store.isDecorating {
+                    GameBottomBar(store: store, moreVisible: $moreVisible, select: select)
+                        .disabled(saveTransferWorking || store.saveTransferInProgress)
+                        .frame(height: 64)
+                        .background(RoomTheme.paper.ignoresSafeArea(edges: .bottom))
                 }
-                .frame(height: 64)
-                .background(RoomTheme.paper.ignoresSafeArea(edges: .bottom))
             }
         }
         .overlayPreferenceValue(OnboardingTargetKey.self) { targets in
@@ -272,17 +294,22 @@ struct RoomHomeView: View {
 
     private func room(_ snapshot: GameSnapshot) -> some View {
         GeometryReader { geometry in
-            let referenceStage = HomeRoomLayout.stageFrame(in: geometry.size, headerHeight: normalHeaderHeight, editing: false)
+            // Editing removes navigation space, but must not change the room's physical reference viewport.
+            let normalCanvas = CGSize(width: geometry.size.width, height: max(0, geometry.size.height - (store.isDecorating ? 64 : 0)))
+            let referenceStage = HomeRoomLayout.stageFrame(in: normalCanvas, headerHeight: normalHeaderHeight, editing: false)
+            let referenceSize = store.isDecorating && normalReferenceStageSize.width > 0 && normalReferenceStageSize.height > 0
+                ? normalReferenceStageSize : referenceStage.size
             let stage = store.isDecorating ? CGRect(origin: .zero, size: geometry.size) : referenceStage
             let careHeight = HomeRoomLayout.careHeight(in: geometry.size)
             ZStack(alignment: .topLeading) {
                 RoomSceneHost(store: store,
                               isActive: scenePhase == .active && homeVisible && !moreVisible
-                                  && !store.isShowingPlayTogether && !store.showsPlayChoices && !store.showSaveError
+                                  && !store.isShowingPlayTogether && !store.showsPlayChoices && store.habitGuideCatID == nil && !store.showSaveError
                                   && store.homeUpgradeCelebration == nil && store.inspectedCatID == nil && store.supplyPicker == nil && !store.onboarding.isPresented,
                               reducedMotion: usesReducedMotion, catNeedPresentation: catNeedPresentation,
-                              referenceViewportSize: referenceStage.size,
-                              arrangementBottomInset: store.isDecorating ? arrangementPanelHeight : 0)
+                              referenceViewportSize: referenceSize,
+                              arrangementBottomInset: store.isDecorating ? arrangementPanelHeight : 0,
+                              arrangementTopInset: store.isDecorating ? arrangementHeaderHeight : 0)
                     .id("\(store.saveSceneGeneration)-\(store.visibleHomeFloor.rawValue)")
                     .frame(width: stage.width, height: stage.height)
                     .background {
@@ -302,22 +329,46 @@ struct RoomHomeView: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("roomStage63")
                     .position(x: stage.midX, y: stage.midY)
-                RoomHomeHUD(store: store, catNeedPresentation: catNeedPresentation)
-                    .frame(width: geometry.size.width)
                 if store.isDecorating {
+                    VStack(spacing: 6) {
+                        ArrangementHeader68(store: store)
+                        ArrangementStageTools68(store: store).padding(.horizontal, 14)
+                    }
+                    .frame(width: geometry.size.width)
+                    .background { GeometryReader { header in
+                        Color.clear.onAppear { updateArrangementHeaderHeight(header.size.height) }
+                            .onChange(of: header.size.height) { _, height in updateArrangementHeaderHeight(height) }
+                    } }
                     VStack { Spacer(minLength: 0); RoomArrangementPanel(store: store) }
-                        .onPreferenceChange(ArrangementPanelHeightKey.self) { arrangementPanelHeight = $0 }
+                        .onPreferenceChange(ArrangementPanelHeightKey.self) { height in
+                            if height.isFinite, height >= 0 { arrangementPanelHeight = height }
+                        }
                 } else {
+                    RoomHomeHUD(store: store, catNeedPresentation: catNeedPresentation)
+                        .frame(width: geometry.size.width)
                     RoomCareBar63(store: store, presentation: catNeedPresentation, reducedMotion: usesReducedMotion)
                         .frame(width: max(1, geometry.size.width - 20), height: careHeight)
                         .position(x: geometry.size.width / 2, y: geometry.size.height - 8 - careHeight / 2)
                 }
             }
             .background(RoomTheme.paleMint.opacity(0.28))
+            .onChange(of: referenceStage.size, initial: true) { _, size in
+                guard !store.isDecorating, size.width.isFinite, size.height.isFinite,
+                      size.width > 0, size.height > 0 else { return }
+                normalReferenceStageSize = size
+            }
+            .onChange(of: store.isDecorating) { _, editing in
+                guard !editing, referenceStage.width > 0, referenceStage.height > 0 else { return }
+                normalReferenceStageSize = referenceStage.size
+            }
             .onDisappear { catNeedPresentation.stageFrame = nil }
         }
     }
 
+    private func updateArrangementHeaderHeight(_ height: CGFloat) {
+        guard height.isFinite, height > 0 else { return }
+        arrangementHeaderHeight = height
+    }
 }
 
 #if DEBUG

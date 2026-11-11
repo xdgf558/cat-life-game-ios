@@ -22,7 +22,7 @@ struct NewFurnitureTests {
             #expect(GameEngine.catRestDuration(for: kind) == nil)
             let position = NormalizedPoint(x: 0.60, y: FurnitureCatalog.metadata(for: kind).isWall ? 0.27 : 0.65)
             let positions = [FurniturePlacement(itemID: item.id, position: position)]
-            let direction: FurnitureOrientation = kind.supportsMirroring ? .mirrored : .normal
+            let direction: FurnitureOrientation = kind.supportsRotation ? .left : .front
             #expect(GameEngine.setRoomLayout(&state, bowlPosition: state.home.bowlPosition,
                 furniture: positions, orientations: [item.id: direction], now: now).succeeded)
             #expect(state.home.furniture == positions)
@@ -36,10 +36,10 @@ struct NewFurnitureTests {
         }
     }
 
-    @Test func sunrisePictureIsWallOnlyAndRejectsMirroring() throws {
+    @Test func sunrisePictureIsWallOnlyAndRejectsRotation() throws {
         #expect(FurnitureCatalog.metadata(for: .wallSunrise).isWall)
-        #expect(!FurnitureKind.wallSunrise.supportsMirroring)
-        let invalid = FurnitureItem(id: "sunrise", kind: .wallSunrise, orientation: .mirrored)
+        #expect(!FurnitureKind.wallSunrise.supportsRotation)
+        let invalid = FurnitureItem(id: "sunrise", kind: .wallSunrise, orientation: .left)
         #expect(throws: SaveRepositoryError.invalidSnapshot) {
             try JSONDecoder().decode(FurnitureItem.self, from: JSONEncoder().encode(invalid))
         }

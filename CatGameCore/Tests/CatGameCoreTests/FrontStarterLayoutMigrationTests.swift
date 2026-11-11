@@ -28,7 +28,7 @@ struct FrontStarterLayoutMigrationTests {
     private func reload(_ state: GameSnapshot, schema: Int = 12) throws -> GameSnapshot {
         var saved = state
         saved.schemaVersion = schema
-        return try JSONDecoder().decode(GameSnapshot.self, from: JSONEncoder().encode(saved))
+        return try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(saved))
     }
 
     private func companionMigrated(_ state: GameSnapshot) -> GameSnapshot {
@@ -74,7 +74,7 @@ struct FrontStarterLayoutMigrationTests {
         var bowl = original
         bowl.home.bowlPosition.x += 0.001
         var mirrored = original
-        mirrored.inventory.furniture[0].orientation = .mirrored
+        mirrored.inventory.furniture[0].orientation = .left
         var differentKind = original
         differentKind.inventory.furniture[0].kind = .bookcase
         var stored = original
@@ -161,7 +161,7 @@ struct FrontStarterLayoutMigrationTests {
         var home = try #require(object["home"] as? [String: Any])
         home.removeValue(forKey: "furniture")
         object["home"] = home
-        let loaded = try JSONDecoder().decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+        let loaded = try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(object))
         #expect(loaded == companionMigrated(original))
     }
 }

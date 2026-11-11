@@ -22,7 +22,7 @@ struct CatHealthTests {
     }
 
     private func decode(_ json: [String: Any]) throws -> GameSnapshot {
-        try JSONDecoder().decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: json))
+        try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(json))
     }
 
     @Test func freshCatsHaveAFullProtectionDay() {
@@ -305,7 +305,7 @@ struct CatHealthTests {
         tasks.removeValue(forKey: "dailyCleanCount")
         tasks.removeValue(forKey: "totalCleanCount")
         legacy["tasks"] = tasks
-        let originalBytes = try JSONSerialization.data(withJSONObject: legacy)
+        let originalBytes = try snapshotFixtureData(legacy)
         try originalBytes.write(to: repository.saveURL)
 
         let firstOpen = now.addingTimeInterval(20 * 86400)

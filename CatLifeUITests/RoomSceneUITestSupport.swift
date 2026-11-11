@@ -12,18 +12,22 @@ extension RoomHomeUITests {
         let kind: String
         let x: Double
         let y: Double
+        let worldX: Double?
+        let worldY: Double?
         let orientation: String
         var position: CGVector { CGVector(dx: x, dy: y) }
         var isWall: Bool { kind == "wallFlower" || kind == "wallCat" }
 
-        private enum CodingKeys: String, CodingKey { case id, kind, x, y, orientation }
+        private enum CodingKeys: String, CodingKey { case id, kind, x, y, worldX, worldY, orientation }
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
             id = try values.decode(String.self, forKey: .id)
             kind = try values.decode(String.self, forKey: .kind)
             x = try values.decode(Double.self, forKey: .x)
             y = try values.decode(Double.self, forKey: .y)
-            orientation = try values.decodeIfPresent(String.self, forKey: .orientation) ?? "normal"
+            worldX = try values.decodeIfPresent(Double.self, forKey: .worldX)
+            worldY = try values.decodeIfPresent(Double.self, forKey: .worldY)
+            orientation = try values.decodeIfPresent(String.self, forKey: .orientation) ?? "front"
         }
     }
 
@@ -46,6 +50,7 @@ extension RoomHomeUITests {
         let catAppearance: String?
         let cameraScale: Double?
         let fitScale: Double?
+        let viewAngle: Int?
         let cameraX: Double?
         let cameraY: Double?
         let worldWidth: Double?
@@ -60,6 +65,7 @@ extension RoomHomeUITests {
         let restFurniture: String?
         let restPoint: FurniturePoint?
         let restVisualPoint: FurniturePoint?
+        let meshRestSeat: FurniturePoint?
         let restContactSamples: Int?
         let completedRests: Int?
         let restPhase: String?
@@ -159,6 +165,9 @@ extension RoomHomeUITests {
         let before = furnitureState(in: app, file: file, line: line)
         let item = try XCTUnwrap(before.items.first { $0.id == id }, file: file, line: line)
         try restFurnitureCoordinate(item, in: app, file: file, line: line).tap()
+        waitForElement("homeRestAsk", in: app)
+        attachScreenshot(app, named: "Companion design 68 - C3 rest invitation before moving")
+        tapAnimationControl("homeRestAskConfirm", in: app)
         let resting = waitForFurniture(in: app, timeout: 60, description: "cat walks to and settles on \(id)",
                                        matching: { $0.phase == "resting" && $0.restFurniture == id && $0.restPhase == "resting"
                                            && ($0.restContactSamples ?? -1) > (before.restContactSamples ?? -1) },
@@ -186,9 +195,10 @@ extension RoomHomeUITests {
         XCTAssertTrue([visualPoint.x, visualPoint.y, elevation, cameraScale].allSatisfy(\.isFinite), file: file, line: line)
         XCTAssertGreaterThan(cameraScale, 0, file: file, line: line)
         XCTAssertGreaterThan(roomHeight, 0, file: file, line: line)
-        XCTAssertEqual(visualPoint.x, resting.cat.x, accuracy: 0.002, file: file, line: line)
-        XCTAssertEqual(visualPoint.y, resting.cat.y - elevation / cameraScale / roomHeight, accuracy: 0.002,
-                       "Rest diagnostics and taps must follow the visible supported body, not the lower navigation anchor.",
+        let meshSeat = try XCTUnwrap(resting.meshRestSeat, file: file, line: line)
+        XCTAssertEqual(visualPoint.x, meshSeat.x, accuracy: 0.002, file: file, line: line)
+        XCTAssertEqual(visualPoint.y, meshSeat.y, accuracy: 0.002,
+                       "The visible resting body must be supported by the real mesh seat, independently of its lower navigation anchor.",
                        file: file, line: line)
         if id == "catBed" {
             XCTAssertGreaterThan(try XCTUnwrap(resting.bedEdgeContactSamples, file: file, line: line),

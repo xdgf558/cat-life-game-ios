@@ -19,7 +19,7 @@ struct GameTaskTests {
     }
 
     func decode(_ object: [String: Any]) throws -> GameSnapshot {
-        try JSONDecoder().decode(GameSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+        try JSONDecoder().decode(GameSnapshot.self, from: snapshotFixtureData(object))
     }
 
     @Test func originalNineTasksKeepTheirIDsRewardsAndLevelOneAvailability() {

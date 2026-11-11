@@ -208,11 +208,12 @@ struct FurnitureTests {
 
     private func removingFurnitureFields(from data: Data, in containers: [String]) throws -> Data {
         var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object["schemaVersion"] = 14
         for name in containers {
             var container = try #require(object[name] as? [String: Any])
             container.removeValue(forKey: "furniture")
             object[name] = container
         }
-        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        return try snapshotFixtureData(object, options: [.sortedKeys])
     }
 }

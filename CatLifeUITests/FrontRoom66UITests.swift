@@ -63,11 +63,11 @@ extension RoomHomeUITests {
         }
         _ = try moveFrontRoom66Cabinet(in: app)
         tapAnimationControl("flipFurnitureButton", in: app)
-        _ = waitForFurniture(in: app, description: "moved cabinet is mirrored in the draft") {
-            !$0.pending && $0.items.first { $0.id == "cabinet" }?.orientation == "mirrored"
+        _ = waitForFurniture(in: app, description: "moved cabinet is right-facing in the draft") {
+            !$0.pending && $0.items.first { $0.id == "cabinet" }?.orientation == "right"
         }
         // The scene payload reflects the draft; durable persistence is checked after cold launch below.
-        attachScreenshot(app, named: "Front 66 — moved and mirrored cabinet before saving")
+        attachScreenshot(app, named: "Front 66 — moved and right-facing cabinet before saving")
         tapAnimationControl("layoutDoneButton", in: app)
         let saved = try waitForFrontRoom66(angle: 0, in: app)
         let savedLayout = try frontRoom66Layout(saved)
@@ -86,7 +86,7 @@ extension RoomHomeUITests {
         let reopened = try waitForFrontRoom66(angle: 0, in: app)
         XCTAssertEqual(try frontRoom66Layout(reopened), savedLayout,
                        "Cold launch must retain the actual saved coordinates, independently of camera framing.")
-        XCTAssertEqual(furnitureState(in: app).items.first { $0.id == "cabinet" }?.orientation, "mirrored")
+        XCTAssertEqual(furnitureState(in: app).items.first { $0.id == "cabinet" }?.orientation, "right")
         attachScreenshot(app, named: "Front 66 — cabinet placement and facing restored after cold launch")
 
         tapAnimationControl("homeDecorateButton", in: app)
@@ -96,22 +96,34 @@ extension RoomHomeUITests {
         }
         let picture = try XCTUnwrap(editing.items.first { $0.id == "wallFlower" })
         let floorTarget = CGVector(dx: editing.bowl.x, dy: editing.bowl.y)
-        let wallDraft = dragFurniture(picture, to: floorTarget, in: app)
+        let canvas = element("roomScene", in: app)
+        canvas.coordinate(withNormalizedOffset: picture.position)
+            .press(forDuration: 0.15, thenDragTo: canvas.coordinate(withNormalizedOffset: floorTarget),
+                   withVelocity: .slow, thenHoldForDuration: 0)
+        _ = waitForFurniture(in: app, description: "the real floor drop keeps an invalid wall-art preview") {
+            !$0.pending && $0.selected == "wallFlower" && !self.element("layoutDoneButton", in: app).isEnabled
+        }
         XCTAssertGreaterThan(try XCTUnwrap(frontRoom66Payload(in: app)["dragPreviewSamples"] as? Int), 0,
-                             "The wall constraint must be exercised by a real drag, rather than a selection-only tap.")
-        let constrainedPicture = try XCTUnwrap(wallDraft.items.first { $0.id == "wallFlower" })
-        XCTAssertGreaterThan(hypot(constrainedPicture.x - floorTarget.dx, constrainedPicture.y - floorTarget.dy), 0.12,
-                             "A wall picture dragged toward the bowl must stay on the wall.")
-        tapAnimationControl("quickStoreFurnitureButton", in: app)
-        _ = waitForFurniture(in: app, description: "wall picture is stored only in the current front-room draft") {
+                             "The invalid footprint must come from an actual wall drag.")
+        tapAnimationControl("layoutTrayToggle", in: app)
+        waitForObservedValue("layoutTrayToggle", "expanded", in: app)
+        scrollPage("arrangementPanelScroll68", to: "arrangementInvalidReason68", allowDisabled: true,
+                   maximumDrags: 12, requiresHitPoint: false, in: app)
+        XCTAssertFalse(element("layoutDoneButton", in: app).isEnabled)
+        XCTAssertFalse(element("layoutConfirmPlacement68", in: app).isEnabled)
+        attachScreenshot(app, named: "Front 66 — raw invalid wall preview blocks saving")
+        scrollPage("arrangementPanelScroll68", to: "storeFurnitureButton", allowDisabled: false, maximumDrags: 12, in: app)
+        tapAnimationControl("storeFurnitureButton", in: app)
+        _ = waitForFurniture(in: app, description: "the invalid wall item is stored only in the current draft") {
             !$0.pending && !$0.items.contains { $0.id == "wallFlower" }
         }
-        attachScreenshot(app, named: "Front 66 — wall picture constrained and stored in the draft")
+        XCTAssertTrue(element("layoutDoneButton", in: app).isEnabled)
+        attachScreenshot(app, named: "Front 66 — storing the invalid wall preview leaves a safe unsaved draft")
         tapAnimationControl("layoutCancelButton", in: app)
         let cancelled = try waitForFrontRoom66(angle: 0, in: app)
         XCTAssertEqual(try frontRoom66Layout(cancelled), savedLayout,
                        "Cancelling must restore both the saved floor layout and wall picture coordinates.")
-        XCTAssertEqual(furnitureState(in: app).items.first { $0.id == "cabinet" }?.orientation, "mirrored")
+        XCTAssertEqual(furnitureState(in: app).items.first { $0.id == "cabinet" }?.orientation, "right")
         app.terminate()
         app.launchArguments = arguments(reset: false) + ["--furniture-test"]
         launchAndEnterHome(app)
@@ -138,8 +150,8 @@ extension RoomHomeUITests {
                 $0.phase == "editing" && $0.selected == "cabinet" && !$0.pending
             }
             let movedWorld = try frontRoom66WorldPoint("cabinet", in: app)
-            if hypot(movedWorld.x - originalWorld.x, movedWorld.y - originalWorld.y) > 0.02 {
-                XCTAssertTrue(element("layoutDoneButton", in: app).isEnabled)
+            if hypot(movedWorld.x - originalWorld.x, movedWorld.y - originalWorld.y) > 0.02,
+               element("layoutDoneButton", in: app).isEnabled {
                 return state
             }
         }

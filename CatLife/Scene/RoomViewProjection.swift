@@ -69,20 +69,33 @@ struct RoomViewProjection: Sendable {
 
     func unprojectWallPoint(_ point: CGPoint) -> CGPoint {
         guard sourceWallHeight > 0, wallHeight > 0 else { return unproject(point) }
-        if angle == .front, let frontFloor {
-            // Legal decorations lie on one straight legacy right-wall edge, whose rectified x mapping is affine.
-            let leftX = worldSize.width / 2, rightX = worldSize.width * 0.75
-            let a = frontFloor.project(wallGround(at: leftX)), b = frontFloor.project(wallGround(at: rightX))
-            guard abs(b.x - a.x) > 0.00001 else { return unproject(point) }
-            let x = leftX + (point.x - a.x) * (rightX - leftX) / (b.x - a.x)
+        func projectedX(_ x: CGFloat) -> CGFloat {
             let ground = wallGround(at: x)
-            return CGPoint(x: x, y: ground.y + (point.y - frontFloor.destination.maxY) * sourceWallHeight / wallHeight)
+            return angle == .front ? (frontFloor?.project(ground).x ?? project(ground).x) : project(ground).x
         }
-        let a = project(wallGround(at: 0)), b = project(wallGround(at: worldSize.width))
-        guard abs(b.x - a.x) > 0.00001 else { return unproject(point) }
-        let x = (point.x - a.x) / (b.x - a.x) * worldSize.width
+        var lower = worldSize.width / 2 - 512 * artworkScale
+        var upper = worldSize.width / 2 + 512 * artworkScale
+        let left = projectedX(lower), right = projectedX(upper)
+        guard right - left > 0.000_001 else { return unproject(point) }
+        let x: CGFloat
+        if point.x < left {
+            let step = max(1, artworkScale * 8)
+            x = lower + (point.x - left) * step / (projectedX(lower + step) - left)
+        } else if point.x > right {
+            let step = max(1, artworkScale * 8)
+            x = upper + (point.x - right) * step / (right - projectedX(upper - step))
+        } else {
+            // Each wall has its own seam; the front floor also changes affine
+            // sectors. Invert their continuous, monotone x mapping together.
+            for _ in 0..<48 {
+                let middle = (lower + upper) / 2
+                if projectedX(middle) < point.x { lower = middle } else { upper = middle }
+            }
+            x = (lower + upper) / 2
+        }
         let ground = wallGround(at: x)
-        return CGPoint(x: x, y: ground.y + (point.y - project(ground).y) * sourceWallHeight / wallHeight)
+        let baseline = angle == .front ? (frontFloor?.destination.maxY ?? project(ground).y) : project(ground).y
+        return CGPoint(x: x, y: ground.y + (point.y - baseline) * sourceWallHeight / wallHeight)
     }
 
     // Calibration uses room-empty.png's 1024×1536 top-left pixel coordinates and RoomArtworkTransform's aspect fill.
@@ -97,7 +110,9 @@ struct RoomViewProjection: Sendable {
         // 70=1024/2−442, 238=1536/2−530, and 295/582=(825−530)/(1024−442).
         let back = CGPoint(x: worldSize.width / 2 - 70 * artworkScale,
                            y: worldSize.height / 2 + 238 * artworkScale)
-        return CGPoint(x: x, y: back.y - (x - back.x) * 295 / 582)
+        return CGPoint(x: x, y: x < back.x
+            ? back.y + (x - back.x) * 255 / 442
+            : back.y - (x - back.x) * 295 / 582)
     }
 
     private func transform(_ point: CGPoint, radians: CGFloat) -> CGPoint {

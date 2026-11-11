@@ -90,8 +90,8 @@ final class RoomScene: SKScene {
     var onFurnitureMoved: ((String, NormalizedPoint) -> Void)?
     var onFurniturePlacementFinished: ((String, Bool) -> Void)?
     var furnitureNodes: [String: SKSpriteNode] { artwork.furnitureNodes }
-    private var ownedFurniture = FurnitureCatalog.defaultItems
-    private var renderedFurniture = FurnitureCatalog.defaultPlacements {
+    var ownedFurniture = FurnitureCatalog.defaultItems
+    var renderedFurniture = FurnitureCatalog.defaultPlacements {
         didSet { if renderedFurniture != oldValue { roomPresentation.invalidateFraming() } }
     }
     var selectedFurnitureID: String?
@@ -103,6 +103,14 @@ final class RoomScene: SKScene {
     var habitOfferItemID: String?
     var onHabitOfferFrameChanged: ((CGRect?) -> Void)?
     private var habitOfferFrameSampler = CatVisualFrameSampler()
+    var restPromptFurnitureID68: String?
+    var cornerMarkerFurnitureID68: String?
+    var onRestRequest68: ((String) -> Void)?
+    var onRestSceneChanged68: ((HomeRestScene68) -> Void)?
+    var onRestIntroduction68: ((String, CatBehaviorStyle) -> Void)?
+    private var lastRestScene68: HomeRestScene68?
+    private var lastRestSceneTime68: TimeInterval = -.infinity
+    private var pendingIntroduction68: (catID: String, furnitureID: String, style: CatBehaviorStyle)?
     var onFurnitureNotice: ((String) -> Void)?
     var activeRest: RoomFurnitureRest?
     // A visual visit starts on approach, but recovery starts only after all
@@ -136,6 +144,16 @@ final class RoomScene: SKScene {
     var onPlacementPendingChanged: ((Bool) -> Void)?
     private(set) var isPlacementPending = false
     var onBowlMoved: ((NormalizedPoint) -> Void)?
+    let arrangement68 = RoomArrangementState68()
+    var onArrangementGestureBegan: (() -> Void)?
+    var onArrangementGestureEnded: (() -> Void)?
+    var onArrangementIssue: ((String, ArrangementIssue68?) -> Void)?
+    var onArrangementOrientation: ((String, FurnitureOrientation) -> Void)?
+    var onArrangementCommandCompleted: ((UUID) -> Void)?
+    var arrangementGrid68: RoomArrangementGrid68 { .init(transform: artworkTransform) }
+    var arrangementPlacementIssues68: [String: ArrangementIssue68] { arrangement68.issues }
+    var arrangementBowlSelected68: Bool { arrangement68.bowlSelected }
+    var arrangementYielding68: Bool { arrangement68.yielding }
     private(set) var presentationPhase = "idle"
     var reducedMotion = false {
         didSet {
@@ -175,26 +193,26 @@ final class RoomScene: SKScene {
     private var renderedViewportSize: CGSize?
     private var referenceViewportSize: CGSize?
     var floor: RoomFloor?
-    private var navigation: RoomNavigation?
+    var navigation: RoomNavigation?
     var placementNavigation: RoomNavigation?
     var placementTask: Task<RoomFurnitureResolution?, Never>?
     var placementRevision = 0
     var committedBowlPosition = CGPoint.zero {
         didSet { if committedBowlPosition != oldValue { roomPresentation.invalidateFraming() } }
     }
-    private var lastRequestedBowlPoint: CGPoint?
+    var lastRequestedBowlPoint: CGPoint?
     private let layoutPlanning = RoomLayoutPlanning()
     var bowlPlanningRequest: RoomBowlPlanner? { layoutPlanning.proposal?.planner }
     private var activeFeedingDock: FeedingDock?
     private var activeFeedingStage: CGPoint?
     private var dockingNavigation: RoomNavigation?
+    private var bowlHasFood = false
 #if DEBUG
     let diagnostics = RoomSceneDiagnostics()
     var openingRollForTesting: Double?
-    private var bowlHasFood = false
 #endif
 
-    private var artworkTransform: RoomArtworkTransform {
+    var artworkTransform: RoomArtworkTransform {
         // SpriteKit updates scene.size before didChangeSize. An occupied room
         // keeps every furniture query/node in the old world until safe exit.
         RoomArtworkTransform(sceneSize: worldGeometry.worldSize,
@@ -202,7 +220,7 @@ final class RoomScene: SKScene {
                              viewportSize: worldGeometry.viewportSize)
     }
 
-    private var worldGeometry: RoomWorldGeometry {
+    var worldGeometry: RoomWorldGeometry {
         RoomWorldGeometry(viewportSize: renderedViewportSize ?? size,
                           worldScale: CGFloat(HomeCatalog.level(renderedRoomLevel)?.worldScale ?? 1))
     }
@@ -282,7 +300,7 @@ final class RoomScene: SKScene {
         }
         guard size.width > 0, size.height > 0 else {
             cancelBowlPlanning(keepingRequest: true)
-            cancelPlacementPreview()
+            cancelPlacementPreview(completeCommand: false)
             if carePlanningTask != nil || suspendedCareKind != nil { cancelPresentation(at: cat.position) }
             return
         }
@@ -306,6 +324,12 @@ final class RoomScene: SKScene {
         if pendingItem != nil { lastPlacingRequest = nil }
     }
     override func update(_ currentTime: TimeInterval) {
+        publishRestIntroduction68()
+        if currentTime < lastRestSceneTime68 || currentTime - lastRestSceneTime68 >= 0.1 {
+            lastRestSceneTime68 = currentTime
+            let state = restPresentation68
+            if state != lastRestScene68 { lastRestScene68 = state; onRestSceneChanged68?(state) }
+        }
         if let onHabitOfferFrameChanged {
             let frame = presentationActive && !editing ? habitOfferItemID.flatMap { roomPresentation.frame("furniture-" + $0) } : nil
             if habitOfferFrameSampler.sample(frame, at: currentTime) { onHabitOfferFrameChanged(frame) }
@@ -380,7 +404,9 @@ final class RoomScene: SKScene {
             items: ownedFurniture, bowl: bowl, bowlFront: artwork.bowlFront, restFront: restFront,
             selection: artwork.selection, toy: toy, feeding: presentationPhase == "feeding", rest: activeRest,
             selectedID: selectedFurnitureID, particles: children.filter { $0.name == "care-particle" },
-            companionRing: artwork.companionRing, companionPlaque: artwork.companionPlaque)
+            companionRing: artwork.companionRing, companionPlaque: artwork.companionPlaque,
+            world: furnitureWorld, editing: editing, bowlSelected: arrangementBowlSelected68,
+            placementIssues: arrangementPlacementIssues68, bowlHasFood: bowlHasFood, reducedMotion: reducedMotion)
         let state = "\(roomViewAngle.rawValue)|\(isWholeRoomView)|\(canChangeRoomView)"
         if state != lastRoomViewState {
             lastRoomViewState = state
@@ -437,7 +463,7 @@ final class RoomScene: SKScene {
         }
         let modeChanged = self.editing != editing
         if modeChanged {
-            residents.invalidate(hide: editing)
+            residents.invalidate()
             self.editing = editing
             if referenceViewportSize == nil {
                 cancelBowlPlanning(keepingRequest: false)
@@ -454,7 +480,9 @@ final class RoomScene: SKScene {
             layoutRoom(preservingPositionFrom: worldGeometry.worldSize)
         }
         if applyPendingRoomExpansion() { return }
-        if !isPlacementPending || bowlPlanningRequest != nil {
+        if editing, hasCommittedSnapshotLayout, bowlPlanningRequest == nil {
+            if !isPlacementPending { adoptArrangementDraft68(snapshot) }
+        } else if !isPlacementPending || bowlPlanningRequest != nil {
             // Buying or changing a stored item cannot interrupt committed care.
             // Only placed items contribute artwork, obstacles and navigation.
             let pending = layoutPlanning.proposal
@@ -478,6 +506,7 @@ final class RoomScene: SKScene {
         if self.selectedFurnitureID != selected && !dragging {
             self.selectedFurnitureID = selected
             placementPrepared = false
+            if editing, selected == nil, !arrangementBowlSelected68 { roomPresentation.camera.fit() }
         }
         if editing && !isPlacementPending { preparePlacementNavigation() }
         if placing == nil { lastPlacingRequest = nil }
@@ -487,13 +516,14 @@ final class RoomScene: SKScene {
         }
         updateSelection()
         updateThought()
+        resumeArrangementCommand68()
 #if DEBUG
         publishFurnitureStatus()
 #endif
         if !presentationBusy { resumeIdle() }
     }
 
-    private func synchronizeFurnitureNodes() {
+    func synchronizeFurnitureNodes() {
         artwork.synchronizeFurniture(items: ownedFurniture, placements: renderedFurniture,
                                      keeping: newPlacementID, transform: artworkTransform,
                                      animateOrientation: editing && !reducedMotion)
@@ -514,7 +544,8 @@ final class RoomScene: SKScene {
 
     func preparePlacementNavigation() {
         guard editing, bowlPlanningRequest == nil, !placementPrepared else { return }
-        placementNavigation = furnitureWorld.placementNavigator(for: selectedFurnitureID, catAt: cat.position)
+        // Preview is exact; expensive route/candidate grids belong to the release worker.
+        placementNavigation = nil
         placementPrepared = true
     }
 
@@ -525,29 +556,81 @@ final class RoomScene: SKScene {
             onFurniturePlacementFinished?(id, false)
             return
         }
+        let pendingDrop = arrangement68.pendingDrop.flatMap { $0.id == id ? $0.point : nil }
         cancelPlacementPreview()
+        if let pendingDrop { arrangement68.pendingDrop = (id, pendingDrop) }
         newPlacementID = id
         selectedFurnitureID = id
+        arrangement68.bowlSelected = false
+        beginArrangementGesture68()
         let node = furnitureNode(for: item)
         let preferred = FurnitureCatalog.defaultPlacements.first { $0.itemID == id }?.position ?? .init(x: 0.62, y: 0.65)
+        let drop = pendingDrop
         node.position = worldGeometry.worldScale > 1
             ? (RoomFurnitureSpec.forItem(item).isWall
                 ? roomPresentation.projection.unprojectWallPoint(roomPresentation.camera.center)
                 : roomPresentation.projection.unproject(roomPresentation.camera.center))
             : artworkTransform.point(preferred)
+        if let drop {
+            node.position = roomPresentation.worldPoint(screen: drop, wall: RoomFurnitureSpec.forItem(item).isWall)
+        }
         node.alpha = 0.75
         placementPrepared = false
         preparePlacementNavigation()
         setPlacementPending(true)
-        resolveReleasedItem()
+        resolveArrangementPlacement68(findNearest: drop == nil)
         updateSelection()
+    }
+
+    var restPresentation68: HomeRestScene68 {
+        let visible = presentationActive && !editing
+        let reason: String?
+        if !visible || bowlPlanningRequest != nil || residents.isBusy || restPlanningTask != nil {
+            reason = "home68.rest.preparing"
+        } else if activeRest != nil || restExiting || cat.isEnteringFurniture {
+            reason = "home68.rest.already"
+        } else if presentationBusy || cat.isPerforming || suspendedCareKind != nil || pendingFeedback != nil {
+            reason = presentationPhase == "feeding" ? "home68.rest.eating" : "home68.rest.waitCare"
+        } else { reason = nil }
+        let request = visible ? restPromptFurnitureID68.flatMap { roomPresentation.frame("furniture-" + $0) } : nil
+        let projectedCorner = visible ? cornerMarkerFurnitureID68.flatMap { roomPresentation.frame("furniture-" + $0) } : nil
+        let corner = projectedCorner.flatMap { $0.intersects(CGRect(origin: .zero, size: size)) ? $0 : nil }
+        let anchor = corner != nil ? cornerMarkerFurnitureID68.flatMap { roomPresentation.anchor("furniture-" + $0) } : nil
+        return HomeRestScene68(phase: presentationPhase, reasonKey: reason,
+                               requestFrame: request, cornerFrame: corner, cornerAnchor: anchor)
+    }
+
+    /// Both touch and VoiceOver request the same confirmation; only its button starts the visit.
+    func requestFurnitureRest68(_ id: String) {
+        guard !editing, presentationActive, let item = ownedFurniture.first(where: { $0.id == id }),
+              CatRestPreference(kind: item.kind) != nil,
+              renderedFurniture.contains(where: { $0.itemID == id }) else { return }
+        onRestRequest68?(id)
+    }
+
+    func confirmFurnitureRest68(_ id: String) {
+        guard restPresentation68.canStart else { return }
+        visitFurniture(id)
     }
 
     func restInFurniture(kind: FurnitureKind) {
         guard let item = ownedFurniture.first(where: { item in
             item.kind == kind && renderedFurniture.contains { $0.itemID == item.id }
         }) else { onFurnitureNotice?("rest.noFurniture"); return }
-        visitFurniture(item.id)
+        requestFurnitureRest68(item.id)
+    }
+
+    private func publishRestIntroduction68() {
+        guard let introduction = pendingIntroduction68 else { return }
+        guard presentationActive, !editing, renderedCatID == introduction.catID,
+              let visit = activeRest, visit.item.id == introduction.furnitureID, !restExiting else {
+            pendingIntroduction68 = nil; return
+        }
+        // Curious cats look only after the actual approach reaches its safe stage.
+        if introduction.style == .curious,
+           cat.restPhase != .approaching || hypot(cat.position.x - visit.plan.stage.x, cat.position.y - visit.plan.stage.y) > 0.5 { return }
+        pendingIntroduction68 = nil
+        onRestIntroduction68?(introduction.catID, introduction.style)
     }
 
     func visitFurniture(_ id: String, notify: Bool = true) {
@@ -619,6 +702,9 @@ final class RoomScene: SKScene {
                 self.latest?.activeCat?.habits.needsRestIntroduction(furnitureID: id,
                     location: .init(floor: self.homeFloor, position: placement.position)) == true
             } == true ? self.renderedCatID.flatMap(CatHabitCatalog.definition(for:))?.style : nil
+            if let introduction, let catID = self.renderedCatID {
+                self.pendingIntroduction68 = (catID, id, introduction)
+            }
             self.cat.rest(approach: visit.plan.approach, entry: visit.plan.entry,
                           facing: visit.plan.facing, duration: item.kind == .catBed ? 12 : 9,
                            elevation: visit.elevation, contactProgress: visit.entryContactProgress,
@@ -653,6 +739,7 @@ final class RoomScene: SKScene {
                 // recovery or rest duration; the absolute session deadline does.
                 self.reconcileRestSession()
             })
+            self.publishRestIntroduction68()
         }
     }
 
@@ -661,12 +748,15 @@ final class RoomScene: SKScene {
     func setPresentationActive(_ active: Bool) {
         presentationActive = active
         if !active {
+            if arrangement68.worker != nil { cancelPlacementPreview(completeCommand: false) }
+            pendingIntroduction68 = nil
+            lastRestScene68 = nil
             needAnchorSampler = CatNeedAnchorSampler()
             visualFrameSampler = CatVisualFrameSampler()
             arrangementFrameSampler = CatVisualFrameSampler()
             cancelCameraInteraction()
             cancelBowlPlanning(keepingRequest: true)
-            if residents.isStrolling {
+            if residents.isStrolling && !arrangementYielding68 {
                 residents.invalidate()
                 cat.cancelAndSettle(at: cat.position)
             }
@@ -679,6 +769,8 @@ final class RoomScene: SKScene {
             suspendedCareKind = kind
         }
         if active {
+            resumeArrangementYield68()
+            resumeArrangementCommand68()
             if bowlPlanningRequest != nil {
                 startBowlPlanning()
                 return
@@ -966,9 +1058,7 @@ final class RoomScene: SKScene {
 
     private func setBowlTexture(_ name: String) {
         artwork.setBowlTexture(name)
-#if DEBUG
         bowlHasFood = name == "bowl-full"
-#endif
         updateBowlLayers()
     }
 
@@ -999,6 +1089,7 @@ final class RoomScene: SKScene {
         updateThought()
     }
     private func cancelPresentation(at point: CGPoint) {
+        pendingIntroduction68 = nil
         floorTravelCareActive = false
 #if DEBUG
         diagnostics.recordPresentationEvent("cancel \(presentationPhase), active=\(presentationActive), size=\(size)")
@@ -1045,7 +1136,6 @@ final class RoomScene: SKScene {
     }
 
     private func prepareResidents() {
-        if editing { residents.invalidate(hide: true); return }
         guard presentationActive, !presentationBusy, bowlPlanningRequest == nil,
               let latest, let planner = residentPlanner else { return }
         residents.prepare(snapshot: latest, active: cat.position, scene: self, planner: planner,
@@ -1128,8 +1218,12 @@ final class RoomScene: SKScene {
             onFloorTravelAvailabilityChanged?(ready)
         }
     }
-    private func layoutRoom(preservingPositionFrom oldSize: CGSize? = nil, preservingNewPlacement: Bool = false) {
-        residents.invalidate(hide: editing)
+    func layoutRoom(preservingPositionFrom oldSize: CGSize? = nil, preservingNewPlacement: Bool = false) {
+        if arrangementYielding68 {
+            if deferredRoomLayoutFromSize == nil { deferredRoomLayoutFromSize = worldGeometry.worldSize }
+            return
+        }
+        residents.invalidate()
         guard size.width > 0, size.height > 0 else { return }
         let suspended = suspendedCareKind ?? planningCareKind
         let feedback = pendingFeedback
@@ -1137,7 +1231,7 @@ final class RoomScene: SKScene {
         let restIsPlayerInitiated = pendingRestIsPlayerInitiated
         cancelBowlPlanning(keepingRequest: false)
         cancelPresentation(at: cat.position)
-        cancelPlacementPreview(reportAbandonedItem: !preservingNewPlacement)
+        cancelPlacementPreview(reportAbandonedItem: !preservingNewPlacement, completeCommand: false)
         suspendedCareKind = suspended
         pendingFeedback = feedback
         pendingRestID = rest
@@ -1207,7 +1301,7 @@ final class RoomScene: SKScene {
             || presentationBusy || (latest?.activeCat?.satiety ?? 100) >= 50
     }
     private func showCareParticles() { artwork.showCareParticles(cat: cat, reducedMotion: reducedMotion) }
-    private func scenePoint(_ point: NormalizedPoint) -> CGPoint {
+    func scenePoint(_ point: NormalizedPoint) -> CGPoint {
         let canvas = worldGeometry.worldSize
         return CGPoint(x: canvas.width * point.x, y: canvas.height * (1 - point.y))
     }
@@ -1233,18 +1327,31 @@ final class RoomScene: SKScene {
     }
 
     /// Reverting the preview does not mutate the saved or edited layout.
-    func cancelPlacementPreview(reportAbandonedItem: Bool = true) {
+    func cancelPlacementPreview(reportAbandonedItem: Bool = true, completeCommand: Bool = true) {
+        if arrangementYielding68 && !completeCommand { return }
+        let previousIssue = (arrangement68.gestureActive ? arrangement68.gestureIssues
+            : arrangement68.sourceIssues ?? arrangement68.issues)[selectedFurnitureID ?? "bowl"]
         placementRevision += 1
         placementTask?.cancel()
         placementTask = nil
+        arrangement68.worker?.cancel()
+        arrangement68.worker = nil
+        if completeCommand || arrangement68.pendingRequest == nil { endArrangementGesture68() }
+        if completeCommand { completeArrangementCommand68() }
         dragging = false
         dragScreenPoint = nil
         _ = roomPresentation.camera.endPan()
         touchOrigin = nil
         let abandoned = newPlacementID
         newPlacementID = nil
+        if abandoned != nil { lastPlacingRequest = nil }
+        if completeCommand { arrangement68.pendingDrop = nil }
         bowl.position = committedBowlPosition
         synchronizeFurnitureNodes()
+        if let abandoned { setArrangementIssue68(id: abandoned, issue: nil) }
+        else if editing {
+            preserveUnmovedArrangementIssue68(previousIssue)
+        }
         placementPrepared = false
         setPlacementPending(editing && activeRest != nil)
         updateSelection()
@@ -1257,66 +1364,7 @@ final class RoomScene: SKScene {
     }
 
     func resolveReleasedItem() {
-        guard let placementNavigation else { cancelPlacementPreview(); return }
-        let ticket = placementRevision
-        let id = selectedFurnitureID
-        let point = selectedNode.position
-        let start = cat.position
-        let world = furnitureWorld
-#if DEBUG
-        let slowTest = diagnostics.dragTesting && ProcessInfo.processInfo.arguments.contains("--slow-placement-test")
-#endif
-        let worker = Task.detached(priority: .userInitiated) {
-#if DEBUG
-            if slowTest { try? await Task.sleep(for: .seconds(3)) }
-#endif
-            guard !Task.isCancelled else { return Optional<RoomFurnitureResolution>.none }
-            return world.resolve(id: id, near: point, catAt: start, placement: placementNavigation)
-        }
-        placementTask = worker
-        Task { [weak self] in
-            let result = await worker.value
-            guard let self, self.editing, self.placementRevision == ticket else { return }
-            self.placementTask = nil
-            let insertedID = self.newPlacementID
-            self.newPlacementID = nil
-            if let result {
-                self.floor = result.floor
-                self.navigation = result.navigation
-                if let id = result.id {
-                    let normalized = world.transform.normalized(result.center)
-                    if let index = self.renderedFurniture.firstIndex(where: { $0.itemID == id }) {
-                        self.renderedFurniture[index].position = normalized
-                    } else {
-                        self.renderedFurniture.append(.init(itemID: id, position: normalized))
-                    }
-                    self.furnitureNodes[id]?.position = result.center
-                    self.furnitureNodes[id]?.alpha = 1
-                    self.onFurnitureMoved?(id, normalized)
-                } else {
-                    self.bowl.position = result.center
-                    self.committedBowlPosition = result.center
-                    let normalized = NormalizedPoint(x: result.center.x / self.worldGeometry.worldSize.width,
-                                                     y: 1 - result.center.y / self.worldGeometry.worldSize.height)
-                    self.lastRequestedBowlPoint = self.scenePoint(normalized)
-                    self.onBowlMoved?(normalized)
-                }
-            } else {
-                self.bowl.position = self.committedBowlPosition
-                self.synchronizeFurnitureNodes()
-            }
-            self.placementPrepared = false
-            self.setPlacementPending(false)
-            if let insertedID { self.onFurniturePlacementFinished?(insertedID, result != nil) }
-            self.updateSelection()
-            self.updateBowlLayers()
-            self.updateFurnitureLayers()
-#if DEBUG
-            self.publishNavigationStatus()
-            self.publishDragMetrics()
-            self.publishFurnitureStatus()
-#endif
-        }
+        resolveArrangementPlacement68(findNearest: false)
     }
 
     private func cancelBowlPlanning(keepingRequest: Bool) {

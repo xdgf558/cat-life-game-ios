@@ -46,7 +46,7 @@ struct FurniturePurchaseBanner: View {
 
     private func contents(_ offer: FurnitureOffer) -> some View {
         HStack(spacing: 10) {
-            GameIcon(asset: offer.assetName, symbol: "sofa.fill", size: 38, tint: RoomTheme.darkMint)
+            GameIcon(asset: FurnitureArtwork68.assetName(for: .init(id: offer.id, kind: offer.kind)), symbol: "sofa.fill", size: 38, tint: RoomTheme.darkMint)
                 .frame(width: 44, height: 44).background(RoomTheme.paleMint, in: RoundedRectangle(cornerRadius: 14))
             VStack(alignment: .leading, spacing: 4) {
                 Text(GameStrings.format("shop.design.purchased", GameStrings.text(offer.nameKey)))

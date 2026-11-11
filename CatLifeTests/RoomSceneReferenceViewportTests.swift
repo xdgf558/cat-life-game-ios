@@ -111,6 +111,7 @@ final class RoomSceneReferenceViewportTests: XCTestCase {
         snapshot.home = HomeState(roomLevel: 3)
         scene.apply(snapshot: snapshot, editing: false)
         try await waitForLayout(scene)
+        scene.onRestRequest68 = { [weak scene] id in scene?.confirmFurnitureRest68(id) }
         scene.restInFurniture(kind: .floorCushion)
         let deadline = Date().addingTimeInterval(15)
         while scene.activeRest == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }

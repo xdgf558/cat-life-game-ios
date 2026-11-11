@@ -1064,4 +1064,9 @@ extension GameStrings {
         .merging(homeHUD63Traditional) { _, new in new }
         .merging(catHabits63Traditional) { _, new in new }
         .merging(companionship67Traditional) { _, new in new }
+        .merging(design68Traditional) { _, new in new }
+        .merging(playDesign68Traditional) { _, new in new }
+        .merging(habitDesign68Traditional) { _, new in new }
+        .merging(homeDesign68Traditional) { _, new in new }
+        .merging(buildDesign68Traditional) { _, new in new }
 }

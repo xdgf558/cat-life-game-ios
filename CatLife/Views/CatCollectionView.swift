@@ -95,7 +95,8 @@ struct CatCollectionView: View {
                 }
             }
         }
-        .saveRecoveryAlert(store: store, isActive: !embedded && !store.isPresentingAdoptionConfirmation)
+        .saveRecoveryAlert(store: store, isActive: !embedded && !store.isPresentingAdoptionConfirmation
+                           && !store.isPresentingHabitGuide && !store.isPresentingHabitMemory)
         .fontDesign(.rounded).foregroundStyle(RoomTheme.ink).tint(RoomTheme.darkMint)
         .environment(\.locale, Locale(identifier: store.language.rawValue))
         .presentationDetents([.large]).presentationDragIndicator(.visible)

@@ -2,7 +2,7 @@ import XCTest
 
 extension RoomHomeUITests {
     @MainActor
-    func testNewBookcasePurchasePlacementMirroringAndStorageSurviveRelaunch() throws {
+    func testNewBookcasePurchasePlacementTurningAndStorageSurviveRelaunch() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
         let itemID = "shop_oak_bookcase_1"
@@ -24,11 +24,11 @@ extension RoomHomeUITests {
         waitForElement("furniturePurchaseBanner", in: app)
         XCTAssertTrue(element("shopDecoratePurchaseButton", in: app).isHittable)
         attachScreenshot(app, named: "New furniture — saved purchase offers an Arrange shortcut")
+        waitForObservedValue("shopGoldCount", "4,740", in: app)
         tapAnimationControl("shopDecoratePurchaseButton", in: app)
         let readyToPlace = waitForFurniture(in: app, description: "purchase shortcut opens the arrangement tray without placing") {
             $0.phase == "editing" && !$0.pending
         }
-        waitForObservedValue("goldCount", "4,740", in: app)
         XCTAssertFalse(readyToPlace.items.contains { $0.id == itemID },
                        "Buying furniture puts it in the bag without silently rearranging the room.")
         XCTAssertEqual(readyToPlace.items.map(\.id).sorted(), initial.items.map(\.id).sorted())
@@ -39,8 +39,8 @@ extension RoomHomeUITests {
         let selectedPurchase = element("layoutStored_" + itemID, in: app)
         XCTAssertTrue(selectedPurchase.isSelected, "The purchased item must be highlighted in the tray.")
         XCTAssertTrue(selectedPurchase.isHittable, "The purchase shortcut must scroll the tray to the new item.")
-        XCTAssertFalse(element("storeFurnitureButton", in: app).isEnabled,
-                       "A selected bag item is still unplaced and cannot be stored again.")
+        XCTAssertFalse(element("storeFurnitureButton", in: app).exists,
+                       "A selected bag item is still unplaced and must not expose a storage action.")
         attachScreenshot(app, named: "New furniture — purchased bookcase selected without changing the layout")
 
         tapAnimationControl("layoutStored_" + itemID, in: app)
@@ -51,11 +51,12 @@ extension RoomHomeUITests {
         if element("layoutTrayToggle", in: app).value as? String == "collapsed" {
             tapAnimationControl("layoutTrayToggle", in: app)
         }
-        tapAnimationControl("flipFurnitureButton", in: app)
+        scrollPage("arrangementPanelScroll68", to: "rotateFurnitureRight68", allowDisabled: false, maximumDrags: 12, in: app)
+        tapAnimationControl("rotateFurnitureRight68", in: app)
         _ = waitForFurniture(in: app, description: "new bookcase faces the opposite direction") {
-            !$0.pending && $0.items.first { $0.id == itemID }?.orientation == "mirrored"
+            !$0.pending && $0.items.first { $0.id == itemID }?.orientation == "right"
         }
-        attachScreenshot(app, named: "New furniture — mirrored oak bookcase in the expanded room")
+        attachScreenshot(app, named: "New furniture — right-facing oak bookcase in the expanded room")
         tapAnimationControl("layoutDoneButton", in: app)
         _ = waitForFurniture(in: app, description: "new bookcase layout saved") { $0.phase == "idle" && !$0.pending }
 
@@ -65,7 +66,7 @@ extension RoomHomeUITests {
         let reopened = waitForFurniture(in: app, description: "bookcase ownership and facing after cold launch") {
             $0.phase == "idle" && !$0.pending
         }
-        XCTAssertEqual(reopened.items.first { $0.id == itemID }?.orientation, "mirrored")
+        XCTAssertEqual(reopened.items.first { $0.id == itemID }?.orientation, "right")
         XCTAssertEqual(reopened.items.count, initial.items.count + 1)
         waitForObservedValue("goldCount", "4,740", in: app)
 

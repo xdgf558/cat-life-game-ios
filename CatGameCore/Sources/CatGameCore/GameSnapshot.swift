@@ -2,7 +2,7 @@ import Foundation
 
 /// The native prototype's own save format. Web saves are never read or overwritten.
 public struct GameSnapshot: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 14
+    public static let currentSchemaVersion = 15
     public var schemaVersion: Int
     public var player: PlayerState
     public var cats: [CatState]
@@ -382,9 +382,15 @@ public struct InventoryState: Codable, Equatable, Sendable {
         toys = try values.decode(Int.self, forKey: .toys)
         // Schema 1 saves predate movable furniture. Only an absent key migrates;
         // an explicit empty collection stays empty and malformed data still fails.
-        furniture = values.contains(.furniture)
-            ? try values.decode([FurnitureItem].self, forKey: .furniture)
-            : FurnitureCatalog.defaultItems
+        if values.contains(.furniture) {
+            var items = try values.nestedUnkeyedContainer(forKey: .furniture)
+            furniture = []
+            while !items.isAtEnd {
+                furniture.append(try FurnitureItem(from: items.superDecoder(), schemaVersion: schemaVersion))
+            }
+        } else if schemaVersion < 15 {
+            furniture = FurnitureCatalog.defaultItems
+        } else { throw SaveRepositoryError.invalidSnapshot }
         gifts = schemaVersion < 7 && !values.contains(.gifts)
             ? [:] : try values.decode([String: Int].self, forKey: .gifts)
         guard validGifts else { throw SaveRepositoryError.invalidSnapshot }
@@ -472,10 +478,13 @@ public struct HomeState: Codable, Equatable, Sendable {
             while !placements.isAtEnd {
                 furniture.append(try FurniturePlacement(from: placements.superDecoder(), schemaVersion: schemaVersion))
             }
-        } else { furniture = schemaVersion < 13 ? FurnitureCatalog.legacyPlacementsV6 : FurnitureCatalog.defaultPlacements }
+        } else if schemaVersion < 15 {
+            furniture = schemaVersion < 13 ? FurnitureCatalog.legacyPlacementsV6 : FurnitureCatalog.defaultPlacements
+        } else { throw SaveRepositoryError.invalidSnapshot }
         // Unlike cosmetic names, purchased room progress must not be silently
         // reset. Only an absent field belongs to the schema-1 migration.
-        roomLevel = values.contains(.roomLevel) ? try values.decode(Int.self, forKey: .roomLevel) : 1
+        roomLevel = schemaVersion < 15 && !values.contains(.roomLevel)
+            ? 1 : try values.decode(Int.self, forKey: .roomLevel)
         upperBowlPosition = try values.decodeIfPresent(NormalizedPoint.self, forKey: .upperBowlPosition)
         guard hasValidFloors,
               schemaVersion >= 10 || ((1...3).contains(roomLevel) && upperBowlPosition == nil)

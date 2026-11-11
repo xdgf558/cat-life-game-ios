@@ -34,7 +34,7 @@ struct ShopListing: Identifiable, Hashable {
         case .furniture:
             return ShopCatalog.furnitureOffers.map { offer in
                 .init(id: offer.id, kind: .furniture, nameKey: offer.nameKey, detailKey: offer.detailKey,
-                      asset: offer.assetName, symbol: "sofa.fill", price: offer.price,
+                      asset: FurnitureArtwork68.assetName(for: .init(id: offer.id, kind: offer.kind)), symbol: "sofa.fill", price: offer.price,
                       unlockLevel: offer.unlockLevel, limit: offer.maxOwned)
             }
         }

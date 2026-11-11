@@ -58,13 +58,14 @@ struct GameSettingsTests {
         var expected = progressedSnapshot()
         expected.home.furniture = FurnitureCatalog.defaultPlacements
         var object = try object(in: JSONEncoder().encode(expected))
+        object["schemaVersion"] = 14
         object.removeValue(forKey: "settings")
         for key in ["home", "inventory"] {
             var container = try #require(object[key] as? [String: Any])
             container.removeValue(forKey: "furniture")
             object[key] = container
         }
-        let legacy = try JSONSerialization.data(withJSONObject: object)
+        let legacy = try snapshotFixtureData(object)
         let loaded = try JSONDecoder().decode(GameSnapshot.self, from: legacy)
         #expect(loaded == expected)
         #expect(loaded.settings.language == nil)

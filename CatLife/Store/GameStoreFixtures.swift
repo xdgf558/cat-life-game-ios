@@ -14,6 +14,7 @@ struct GameStoreFixtures {
     private var failCatAdoptionOnce = false
     private var failCatSelectionOnce = false
     private var failTreatmentOnce = false
+    private var failHabitPinOnce = false
     private var failUserSaves = false
     private var outageStarted = false
 
@@ -28,6 +29,7 @@ struct GameStoreFixtures {
         failCatAdoptionOnce = reset && arguments.contains("--cat-adoption-save-failure-once")
         failCatSelectionOnce = reset && arguments.contains("--cat-companion-save-failure-once")
         failTreatmentOnce = reset && arguments.contains("--hospital-save-failure-once")
+        failHabitPinOnce = reset && arguments.contains("--habit-pin-save-failure-once")
         guard reset else { return }
         futureLoadFailure = arguments.contains("--save-load-future-fixture")
         damagedLoadFailure = arguments.contains("--save-load-damaged-fixture")
@@ -280,6 +282,10 @@ struct GameStoreFixtures {
 
     mutating func checkSave(_ candidate: GameSnapshot, original: GameSnapshot,
                             exitsRest: Bool) throws {
+        if failHabitPinOnce && candidate.cats.map(\.habits.pinnedMemory) != original.cats.map(\.habits.pinnedMemory) {
+            failHabitPinOnce = false
+            throw CocoaError(.fileWriteUnknown)
+        }
         if failTreatmentOnce, candidate.player.gold < original.player.gold,
            original.cats.contains(where: { old in
                old.healthState?.illness != nil

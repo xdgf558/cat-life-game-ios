@@ -728,7 +728,7 @@ extension GameSnapshot {
         let ownedIDs = Set(owned.map(\.id))
         guard ownedIDs.count == owned.count,
               owned.allSatisfy({ !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                  && ($0.orientation == .normal || $0.kind.supportsMirroring) }),
+                  && ($0.orientation == .front || $0.kind.supportsRotation) }),
               Set(placements.map(\.itemID)).count == placements.count else { return false }
         return placements.allSatisfy { ownedIDs.contains($0.itemID) && isUnitPosition($0.position) }
     }

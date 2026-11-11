@@ -22,9 +22,12 @@ struct ShopAndHomeUpgradeTests {
     private func roomLevelData(_ data: Data, value: Any?) throws -> Data {
         var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         var home = try #require(object["home"] as? [String: Any])
-        if let value { home["roomLevel"] = value } else { home.removeValue(forKey: "roomLevel") }
+        if let value { home["roomLevel"] = value } else {
+            home.removeValue(forKey: "roomLevel")
+            object["schemaVersion"] = 14
+        }
         object["home"] = home
-        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        return try snapshotFixtureData(object, options: [.sortedKeys])
     }
 
     @Test func catalogHasFourPaidSlotsAndNeverAddsPaidItemsToTheStarterGift() throws {
