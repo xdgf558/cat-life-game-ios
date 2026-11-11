@@ -2,13 +2,9 @@
 
 本仓库独立维护「打工养猫日记」的原生 iOS App，采用 SwiftUI、SpriteKit 和本地 Foundation 核心包，最低 iOS 17；支持简体中文、繁体中文和 English。游戏进度保存在设备本地，提供原生备份导入与导出。
 
-网页版继续在 [cat-life-game](https://github.com/xdgf558/cat-life-game) 独立维护；本仓库不构建网页版，也不读取或迁移网页存档。仓库拆分不创建新的 App，不改变 Bundle ID `com.stationcat.catlife.native` 或既有玩家存档。
-
 ## 当前状态
 
-当前版本 **0.22.0（67）** 已于 **2026-11-11 09:10:09（GMT+8）** 上传 TestFlight。上传回执确认 Apple 已开始处理，**尚未确认处理完成或开放测试**；内测、外测、测试者邀请及审核分发由用户手动添加。此次仓库迁移不是新版本发布，不另行提升版本或重新上传。
-
-功能验证范围与仍待真机验收的项目见 [0.22.0 QA 摘要](QA/companionship-build67-summary.md)，上传交接见 [TestFlight 说明](Distribution/TestFlight/README.txt)。历史长文已移至 [README 历史记录](docs/history/README-legacy.txt)，其中旧路径和发布状态不代替本文步骤；仓库拆分说明见 [迁移记录](docs/repository-migration.md)。
+当前版本 **0.22.0（67）**，已上传 TestFlight，持续开发中。
 
 ## 获取资源与运行（唯一现行入口）
 
