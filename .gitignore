@@ -7,3 +7,9 @@ xcuserdata/
 *.xcresult/
 *.log
 !QA/**/*.log
+
+# Local release/build output; source distribution notes remain tracked.
+*.xcarchive/
+*.ipa
+*.dSYM/
+*.xcdistributionlogs/

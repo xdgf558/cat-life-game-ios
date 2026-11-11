@@ -14,7 +14,7 @@ LFS_HEADER = b"version https://git-lfs.github.com/spec/v1"
 RUNTIME_DIRECTORIES = ("CatLife/Assets.xcassets", "CatLife/Audio")
 MANIFEST = "scripts/runtime_assets.json"
 SANDBOX_INPUTS = "scripts/runtime_assets.xcfilelist"
-DOWNLOAD_COMMAND = 'git lfs pull --include="native/ios/CatLife/**"'
+DOWNLOAD_COMMAND = 'git lfs pull --include="CatLife/**"'
 
 
 class Recovery(Enum):
@@ -138,7 +138,7 @@ def inspect(root: Path, *, updating_manifest: bool = False) -> tuple[list[str], 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent.parent,
-                        help="native/ios directory (defaults to the script's parent)")
+                        help="iOS repository root (defaults to the script's parent)")
     parser.add_argument("--update-manifest", action="store_true",
                         help="record a deliberate runtime asset addition/removal after validating all present media")
     args = parser.parse_args(argv)
@@ -155,12 +155,12 @@ def main(argv: list[str] | None = None) -> int:
         if Recovery.INVENTORY in recoveries:
             print("error: Restore runtime_assets.json/runtime_assets.xcfilelist from Git; check permissions if unreadable.", file=sys.stderr)
             print("error: After deliberate resource changes, regenerate both lists with:", file=sys.stderr)
-            print("error:   python3 -B native/ios/scripts/check_runtime_assets.py --update-manifest", file=sys.stderr)
+            print("error:   python3 -B scripts/check_runtime_assets.py --update-manifest", file=sys.stderr)
         if Recovery.ACCESS in recoveries:
             print("error: Check read permissions and Xcode script sandbox inputs for the unreadable resources.", file=sys.stderr)
         if Recovery.RESTORE in recoveries or Recovery.DOWNLOAD in recoveries:
             print("error: Restore locally deleted or invalid resource/metadata files from Git.", file=sys.stderr)
-        print("error: Re-run python3 native/ios/scripts/check_runtime_assets.py before building.", file=sys.stderr)
+        print("error: Re-run python3 scripts/check_runtime_assets.py before building.", file=sys.stderr)
         return 1
     if args.update_manifest:
         (args.root / MANIFEST).write_text(json.dumps({"schemaVersion": 1, "resources": resources}, indent=2) + "\n")

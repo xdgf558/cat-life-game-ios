@@ -1,3 +1,11 @@
+历史资料：原合并仓库的 iOS README
+
+本文件迁自原仓库 native/ios/README.txt，以下正文原样保留，记录各版本当时的范围、路径和验证状态，不是当前构建或发布入口。
+正文中的 native/ios/ 前缀属于原合并仓库；在本独立仓库中对应仓库根目录。正文中的“根目录网页版”、网页命令、旧 PR 编号和原提交 hash 均指原仓库 https://github.com/xdgf558/cat-life-game；过滤迁移后提交 hash 已变化，不能用旧 hash 代表新仓库提交。
+当前安装、资源获取和验证步骤统一见 ../../README.md；当前上传状态见 ../../Distribution/TestFlight/README.txt。历史中的“未上传”等状态只反映记录当时，不覆盖当前说明。
+
+——以下为迁移前正文——
+
 打工养猫日记 — 原生 iOS 首页原型
 
 采用 SwiftUI + SpriteKit + Foundation，最低 iOS 17。独立于仓库根目录的网页版。
