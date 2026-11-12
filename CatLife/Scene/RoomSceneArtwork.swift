@@ -11,6 +11,7 @@ import CatGameCore
 @MainActor
 final class RoomSceneArtwork {
     private weak var scene: SKScene?
+    private var container: SKNode? { (scene as? RoomScene)?.simulationRoot ?? scene }
     let room = SKSpriteNode(imageNamed: "room-empty")
     let bowl = SKSpriteNode(imageNamed: "bowl-empty")
     let bowlFront = SKSpriteNode()
@@ -29,15 +30,15 @@ final class RoomSceneArtwork {
     func install(in scene: SKScene) {
         self.scene = scene
         room.zPosition = 0
-        scene.addChild(room)
+        ((scene as? RoomScene)?.simulationRoot ?? scene).addChild(room)
         upperWall.zPosition = 0.1
-        scene.addChild(upperWall)
+        ((scene as? RoomScene)?.simulationRoot ?? scene).addChild(upperWall)
         companionRing.fillColor = UIColor(red: 0.2, green: 0.68, blue: 0.54, alpha: 0.18)
         companionRing.name = "companion-ring"
         companionPlaque.name = "companion-name"
         companionRing.strokeColor = UIColor(red: 0.2, green: 0.68, blue: 0.54, alpha: 1)
         companionRing.lineWidth = 3
-        scene.addChild(companionRing)
+        ((scene as? RoomScene)?.simulationRoot ?? scene).addChild(companionRing)
         companionPlaque.fillColor = UIColor(white: 1, alpha: 0.96)
         companionPlaque.strokeColor = companionRing.strokeColor
         companionPlaque.lineWidth = 2
@@ -46,23 +47,23 @@ final class RoomSceneArtwork {
         companionName.fontColor = UIColor(red: 0.08, green: 0.48, blue: 0.37, alpha: 1)
         companionName.verticalAlignmentMode = .center
         companionPlaque.addChild(companionName)
-        scene.addChild(companionPlaque)
+        ((scene as? RoomScene)?.simulationRoot ?? scene).addChild(companionPlaque)
         bowl.name = "bowl"
         bowl.zPosition = 25
-        scene.addChild(bowl)
-        scene.addChild(bowlFront)
+        ((scene as? RoomScene)?.simulationRoot ?? scene).addChild(bowl)
+        ((scene as? RoomScene)?.simulationRoot ?? scene).addChild(bowlFront)
         restFront.isHidden = true
-        scene.addChild(restFront)
+        ((scene as? RoomScene)?.simulationRoot ?? scene).addChild(restFront)
         setBowlTexture("bowl-empty")
         toy.zPosition = 26
         toy.isHidden = true
-        scene.addChild(toy)
+        ((scene as? RoomScene)?.simulationRoot ?? scene).addChild(toy)
         selection.fillColor = UIColor(red: 0.3, green: 0.75, blue: 0.60, alpha: 0.15)
         selection.strokeColor = UIColor(red: 0.15, green: 0.61, blue: 0.46, alpha: 0.9)
         selection.lineWidth = 2
         selection.zPosition = 1_500
         selection.isHidden = true
-        scene.addChild(selection)
+        ((scene as? RoomScene)?.simulationRoot ?? scene).addChild(selection)
         let bubble = SKShapeNode(rectOf: CGSize(width: 58, height: 46), cornerRadius: 20)
         bubble.fillColor = UIColor(red: 1, green: 0.99, blue: 0.96, alpha: 0.98)
         bubble.strokeColor = UIColor(red: 0.81, green: 0.71, blue: 0.56, alpha: 0.4)
@@ -80,7 +81,7 @@ final class RoomSceneArtwork {
             thought.addChild(dot)
         }
         thought.zPosition = 30
-        scene.addChild(thought)
+        ((scene as? RoomScene)?.simulationRoot ?? scene).addChild(thought)
     }
 
     func updateCompanionMarker(cat: CatActor, name: String, hidden: Bool, reducedMotion: Bool, hidesName: Bool = false) {
@@ -159,7 +160,7 @@ final class RoomSceneArtwork {
             node = SKSpriteNode(texture: texture)
             node.name = "furniture-" + item.id
             furnitureNodes[item.id] = node
-            scene?.addChild(node)
+            container?.addChild(node)
         }
         let spec = RoomFurnitureSpec.forItem(item)
         let width = spec.width * artworkTransform.visualScale
@@ -260,7 +261,7 @@ final class RoomSceneArtwork {
             particle.position = CGPoint(x: cat.position.x - 18 + CGFloat(index) * 19, y: cat.visualFrame.midY)
             particle.zPosition = 2_010
             particle.alpha = 0
-            scene?.addChild(particle)
+            container?.addChild(particle)
             particle.run(.sequence([.wait(forDuration: 0.4 + Double(index) * 0.12), .fadeIn(withDuration: 0.1),
                                     .group([.moveBy(x: CGFloat(index - 1) * 6, y: 22, duration: 0.8), .fadeOut(withDuration: 0.8)]), .removeFromParent()]))
         }

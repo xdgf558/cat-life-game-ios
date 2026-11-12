@@ -12,7 +12,12 @@ final class RoomScene: SKScene {
     var onSound: ((GameSoundEffect) -> Void)?
     var preferredFrameLimit: Int?
     #if os(macOS)
+    private let macSimulationLayer = SKNode()
     var macCanvasOwnerID: UUID?
+    var onFixedStructureTapped: ((MacRoomStructure) -> Void)?
+    var desktopInitialViewAngle: RoomViewAngle = .front
+    var desktopViewTransitionTask: Task<Void, Never>?
+    var desktopViewTransitionID: UUID?
     var desktopViewRequested = false
     var hasPreparedDesktopView = false
     #endif
@@ -96,7 +101,10 @@ final class RoomScene: SKScene {
     }
     private var arrangementFrameSampler = CatVisualFrameSampler()
     var canShowCatNeed: Bool {
-        presentationActive && !editing && !presentationBusy && (!cat.isPerforming || residents.isStrolling)
+        #if os(macOS)
+        if desktopViewTransitionTask != nil { return false }
+        #endif
+        return presentationActive && !editing && !presentationBusy && (!cat.isPerforming || residents.isStrolling)
             && !cat.isHidden && bowlPlanningRequest == nil && !residents.isPreparing
     }
     var canInspectResidents: Bool { canShowCatNeed && activeRest == nil && !floorTravelCareActive }
@@ -254,6 +262,14 @@ final class RoomScene: SKScene {
                            bowlPosition: bowl.position, items: ownedFurniture, placements: renderedFurniture)
     }
 
+    var simulationRoot: SKNode {
+        #if os(macOS)
+        macSimulationLayer
+        #else
+        self
+        #endif
+    }
+
     override init(size: CGSize) {
         super.init(size: size)
         cat.onSound = { [weak self] sound in self?.onSound?(sound) }
@@ -266,13 +282,18 @@ final class RoomScene: SKScene {
         }
         scaleMode = .resizeFill
         backgroundColor = UIColor(red: 0.98, green: 0.95, blue: 0.89, alpha: 1)
+        #if os(macOS)
+        // Mirrors read each source node's own visibility; a hidden parent suppresses duplicate simulation art.
+        macSimulationLayer.isHidden = true
+        addChild(macSimulationLayer)
+        #endif
         artwork.install(in: self)
         addChild(roomCameraNode)
         camera = roomCameraNode
         roomCameraNode.addChild(roomPresentation.root)
         cat.name = "cat"
         cat.zPosition = 20
-        addChild(cat)
+        simulationRoot.addChild(cat)
         layoutRoom()
     }
     required init?(coder aDecoder: NSCoder) { fatalError("RoomScene is created in code") }
@@ -308,6 +329,9 @@ final class RoomScene: SKScene {
 #if DEBUG
         diagnostics.recordPresentationEvent("resize \(oldSize) -> \(size), active=\(presentationActive)")
 #endif
+        #if os(macOS)
+        cancelDesktopViewTransition()
+        #endif
         cancelCameraInteraction()
         if let referenceViewportSize, size.width > 0, size.height > 0, let floor,
            Self.sameViewport(layoutPlanning.proposal?.geometry.viewportSize ?? renderedViewportSize ?? oldSize,
@@ -427,7 +451,7 @@ final class RoomScene: SKScene {
         roomPresentation.update(cat: cat, residents: residents, furniture: furnitureNodes,
             items: ownedFurniture, bowl: bowl, bowlFront: artwork.bowlFront, restFront: restFront,
             selection: artwork.selection, toy: toy, feeding: presentationPhase == "feeding", rest: activeRest,
-            selectedID: selectedFurnitureID, particles: children.filter { $0.name == "care-particle" },
+            selectedID: selectedFurnitureID, particles: simulationRoot.children.filter { $0.name == "care-particle" },
             companionRing: artwork.companionRing, companionPlaque: artwork.companionPlaque,
             world: furnitureWorld, editing: editing, bowlSelected: arrangementBowlSelected68,
             placementIssues: arrangementPlacementIssues68, bowlHasFood: bowlHasFood, reducedMotion: reducedMotion)
@@ -771,14 +795,23 @@ final class RoomScene: SKScene {
     func setReadOnlyPreviewEnabled(_ enabled: Bool) {
         guard readOnlyPreviewEnabled != enabled else { return }
         readOnlyPreviewEnabled = enabled
-        if enabled { startBowlPlanning() }
-        else if !presentationActive { cancelBowlPlanning(keepingRequest: true) }
+        if enabled {
+            startBowlPlanning()
+            if !presentationActive { resumeIdle() }
+        } else if !presentationActive {
+            cancelBowlPlanning(keepingRequest: true)
+            residents.invalidate()
+            cat.setIdleEnabled(false)
+        }
     }
 
     /// Resume the existing pose without replaying its full sleep after a pause.
     /// Called before unpausing SKView and from onAppear for a retained scene.
     func setPresentationActive(_ active: Bool) {
         presentationActive = active
+        #if os(macOS)
+        if !active { cancelDesktopViewTransition() }
+        #endif
         if !active {
             if arrangement68.worker != nil { cancelPlacementPreview(completeCommand: false) }
             pendingIntroduction68 = nil
@@ -1169,7 +1202,7 @@ final class RoomScene: SKScene {
     }
 
     private func prepareResidents() {
-        guard presentationActive, !presentationBusy, bowlPlanningRequest == nil,
+        guard presentationActive || readOnlyPreviewEnabled, !presentationBusy, bowlPlanningRequest == nil,
               let latest, let planner = residentPlanner else { return }
         residents.prepare(snapshot: latest, active: cat.position, scene: self, planner: planner,
                           width: catWidth, reducedMotion: reducedMotion)
@@ -1178,8 +1211,9 @@ final class RoomScene: SKScene {
     private func resumeIdle() {
         if applyPendingRoomExpansion() { return }
         prepareResidents()
-        residents.setIdleEnabled(presentationActive && !editing)
-        cat.setIdleEnabled(presentationActive && bowlPlanningRequest == nil && !editing && !presentationBusy)
+        let visible = presentationActive || readOnlyPreviewEnabled
+        residents.setIdleEnabled(visible && !editing)
+        cat.setIdleEnabled(visible && bowlPlanningRequest == nil && !editing && !presentationBusy)
         updateThought()
         guard presentationActive, bowlPlanningRequest == nil, !editing, !presentationBusy,
               !reducedMotion, !residents.isBusy, action(forKey: "ambient-walk") == nil else { return }
@@ -1252,6 +1286,9 @@ final class RoomScene: SKScene {
         }
     }
     func layoutRoom(preservingPositionFrom oldSize: CGSize? = nil, preservingNewPlacement: Bool = false) {
+        #if os(macOS)
+        cancelDesktopViewTransition()
+        #endif
         if arrangementYielding68 {
             if deferredRoomLayoutFromSize == nil { deferredRoomLayoutFromSize = worldGeometry.worldSize }
             return

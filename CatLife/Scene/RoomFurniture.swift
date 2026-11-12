@@ -88,11 +88,15 @@ struct RoomFurnitureWorld: Sendable {
     }
 
     func floorObstacles(excluding excludedID: String? = nil) -> [CGRect] {
-        placements.compactMap { placement in
+        var obstacles = placements.compactMap { placement -> CGRect? in
             guard placement.itemID != excludedID, let item = item(placement.itemID),
                   !RoomFurnitureSpec.forItem(item).isWall else { return nil }
             return rectangle(item, at: transform.point(placement.position))
         }
+        #if os(macOS)
+        if let stairs = MacRoomReservations.stairObstacle(transform: transform) { obstacles.append(stairs) }
+        #endif
+        return obstacles
     }
 
     var wallPolygon: [CGPoint] {
@@ -121,20 +125,27 @@ struct RoomFurnitureWorld: Sendable {
         let catRect = CGRect(x: cat.x - floor.catFootprint.width / 2 - 3,
                              y: cat.y - floor.catFootprint.height / 2 - 3,
                              width: floor.catFootprint.width + 6, height: floor.catFootprint.height + 6)
+        var fixedPlacement: [CGRect] = []
+        #if os(macOS)
+        if let model = MacRoomReservations.projection(transform: transform) {
+            fixedPlacement.append(MacRoomProjection.bounds(model.logicalBoundary(of: MacRoomProjection.doorClearanceCells)))
+        }
+        #endif
         return RoomNavigation(floor: floor.polygon,
-                              obstacles: floorObstacles(excluding: id).map { $0.insetBy(dx: -2, dy: -2) }
+                              obstacles: fixedPlacement + floorObstacles(excluding: id).map { $0.insetBy(dx: -2, dy: -2) }
                                 + [floor.bowlObstacle(at: bowlPosition).insetBy(dx: -2, dy: -2), catRect],
                               footprint: footprint(item), cellSize: 7,
                               floorFootprintShape: item.kind == .catBed ? .clippedCorners : .rectangle)
     }
 
-    func replacing(_ id: String, with center: CGPoint) -> Self {
+    func replacing(_ id: String, with center: CGPoint, preservingLegacyFootprint: Bool = false,
+                   placementFloor: HomeFloor? = nil) -> Self {
         let previous = placements.first { $0.itemID == id }
         let placement = FurniturePlacement(itemID: id, position: RoomArrangementGrid68(transform: transform).normalized(world: center),
-                                           floor: previous?.floor ?? .ground)
+                                           floor: previous?.floor ?? placementFloor ?? .ground)
         var updated = placements.filter { $0.itemID != id }
         updated.append(placement)
-        let owned = items.map { $0.id == id ? $0.applyingPlacement(from: previous, to: placement) : $0 }
+        let owned = preservingLegacyFootprint ? items : items.map { $0.id == id ? $0.applyingPlacement(from: previous, to: placement) : $0 }
         return Self(transform: transform, catWidth: catWidth, bowlSize: bowlSize, bowlPosition: bowlPosition,
                     items: owned, placements: updated)
     }

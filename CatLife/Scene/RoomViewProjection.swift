@@ -16,8 +16,14 @@ struct RoomViewProjection: Sendable {
     let worldSize: CGSize
     let angle: RoomViewAngle
     let frontFloor: RoomFrontFloorProjection?
+    #if os(macOS)
+    var macRoom: MacRoomProjection?
+    #endif
 
     var wallHeight: CGFloat {
+        #if os(macOS)
+        if let macRoom { return MacRoomProjection.wallCells * macRoom.unit * 0.88 }
+        #endif
         if angle == .front, let frontFloor { return frontFloor.destination.height * 0.34 / 0.66 }
         return min(worldSize.width * 0.43, worldSize.height * 0.27)
     }
@@ -29,6 +35,9 @@ struct RoomViewProjection: Sendable {
     }
 
     func project(_ point: CGPoint) -> CGPoint {
+        #if os(macOS)
+        if let macRoom { return macRoom.project(point) }
+        #endif
         if angle == .front { return frontFloor?.project(point) ?? point }
         let center = CGPoint(x: worldSize.width / 2, y: worldSize.height / 2)
         let offset = vector(CGPoint(x: point.x - center.x, y: point.y - center.y))
@@ -36,6 +45,9 @@ struct RoomViewProjection: Sendable {
     }
 
     func unproject(_ point: CGPoint) -> CGPoint {
+        #if os(macOS)
+        if let macRoom { return macRoom.unproject(point) }
+        #endif
         if angle == .front { return frontFloor?.unproject(point) ?? point }
         let center = CGPoint(x: worldSize.width / 2, y: worldSize.height / 2)
         let offset = transform(CGPoint(x: point.x - center.x, y: point.y - center.y), radians: -angle.radians)
@@ -44,6 +56,12 @@ struct RoomViewProjection: Sendable {
 
     /// Rectification is piecewise affine, so a local displacement must retain its origin.
     func vector(_ delta: CGPoint, at origin: CGPoint = .zero) -> CGPoint {
+        #if os(macOS)
+        if let macRoom {
+            let a = macRoom.project(origin), b = macRoom.project(CGPoint(x: origin.x + delta.x, y: origin.y + delta.y))
+            return CGPoint(x: b.x - a.x, y: b.y - a.y)
+        }
+        #endif
         if angle == .front, frontFloor != nil {
             let a = project(origin), b = project(CGPoint(x: origin.x + delta.x, y: origin.y + delta.y))
             return CGPoint(x: b.x - a.x, y: b.y - a.y)
@@ -56,6 +74,12 @@ struct RoomViewProjection: Sendable {
 
     /// Wall decorations retain their original wall coordinates; only their displayed height is remapped.
     func wallPoint(_ point: CGPoint) -> CGPoint {
+        #if os(macOS)
+        if let macRoom {
+            let x = (point.x - macRoom.logicalBounds.minX) / macRoom.logicalBounds.width * MacRoomProjection.columns
+            return macRoom.wallPoint(x: x, height: (point.y - wallGround(at: point.x).y) / sourceWallHeight * MacRoomProjection.wallCells)
+        }
+        #endif
         guard sourceWallHeight > 0, wallHeight > 0 else { return project(point) }
         if angle == .front, let frontFloor {
             let ground = wallGround(at: point.x)
@@ -68,6 +92,13 @@ struct RoomViewProjection: Sendable {
     }
 
     func unprojectWallPoint(_ point: CGPoint) -> CGPoint {
+        #if os(macOS)
+        if let macRoom {
+            let cell = macRoom.wallCoordinates(projected: point)
+            let x = macRoom.logicalBounds.minX + cell.x / MacRoomProjection.columns * macRoom.logicalBounds.width
+            return CGPoint(x: x, y: wallGround(at: x).y + cell.y / MacRoomProjection.wallCells * sourceWallHeight)
+        }
+        #endif
         guard sourceWallHeight > 0, wallHeight > 0 else { return unproject(point) }
         func projectedX(_ x: CGFloat) -> CGFloat {
             let ground = wallGround(at: x)

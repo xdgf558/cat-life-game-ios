@@ -1072,4 +1072,6 @@ extension GameStrings {
         .merging(macShellEnglish) { _, new in new }
         .merging(macSettingsEnglish) { _, new in new }
         .merging(macContent69English) { _, new in new }
+        .merging(macTitleV2English) { _, new in new }
+        .merging(macRoomV2English) { _, new in new }
 }

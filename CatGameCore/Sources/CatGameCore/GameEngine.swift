@@ -480,6 +480,7 @@ public enum GameEngine {
                                      furniture: [FurniturePlacement],
                                      orientations: [String: FurnitureOrientation] = [:],
                                      floor: HomeFloor = .ground,
+                                     rules: HomeLayoutRules = .standard,
                                      now: Date = Date()) -> ActionOutcome {
         let synchronized = synchronize(&state, now: now)
         guard synchronized.succeeded else { return synchronized }
@@ -505,8 +506,8 @@ public enum GameEngine {
               }) else {
             return failure(.roomInvalidFurnitureLayout)
         }
-        guard HomeCatalog.allowsLayout(merged, replacing: state.home.furniture, roomLevel: state.home.roomLevel)
-        else { return failure(.roomCapacityReached, amount: HomeCatalog.level(state.home.roomLevel)?.capacity(on: floor) ?? 0) }
+        guard HomeCatalog.allowsLayout(merged, replacing: state.home.furniture, roomLevel: state.home.roomLevel, rules: rules)
+        else { return failure(.roomCapacityReached, amount: HomeCatalog.level(state.home.roomLevel)?.capacity(on: floor, rules: rules) ?? 0) }
         let turnedPlacedItem = zip(owned, state.inventory.furniture).contains { updated, previous in
             (updated.orientation != previous.orientation || updated.usesLegacyFootprint != previous.usesLegacyFootprint)
                 && state.home.furniture.contains { $0.itemID == updated.id }

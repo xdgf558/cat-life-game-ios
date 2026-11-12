@@ -111,7 +111,7 @@ final class MacRoomInputTests: XCTestCase {
         let scene = RoomScene(size: CGSize(width: 800, height: 600))
         scene.setPresentationActive(false)
         scene.apply(snapshot: .fresh(now: Date()), editing: false)
-        scene.prepareDesktopView()
+        scene.prepareDesktopView(initialAngle: .right)
         scene.setReadOnlyPreviewEnabled(true)
         defer { scene.setReadOnlyPreviewEnabled(false); scene.setPresentationActive(false) }
         for _ in 0..<200 where scene.bowlPlanningRequest != nil {

@@ -13,6 +13,9 @@ struct RoomFloor: Sendable {
     let bowlFootprint: CGSize
     let bowlGroundOffset: CGFloat
     private(set) var furnitureObstacles: [CGRect]
+    #if os(macOS)
+    private let doorPlacementObstacle: CGRect?
+    #endif
 
     init(sceneSize: CGSize, artworkSize: CGSize, catWidth: CGFloat, bowlSize: CGSize, furnitureObstacles: [CGRect] = []) {
         self.furnitureObstacles = furnitureObstacles
@@ -40,6 +43,10 @@ struct RoomFloor: Sendable {
         catFootprint = CGSize(width: catWidth * 1.36, height: catWidth * 0.25)
         bowlFootprint = CGSize(width: bowlSize.width * 0.68, height: bowlSize.height * 0.30)
         bowlGroundOffset = -bowlSize.width * 0.09
+        #if os(macOS)
+        doorPlacementObstacle = MacRoomProjection(legacyFloor: polygon, worldSize: sceneSize, angle: .front)
+            .map { MacRoomProjection.bounds($0.logicalBoundary(of: MacRoomProjection.doorClearanceCells)) }
+        #endif
     }
 
     func bowlGround(at center: CGPoint) -> CGPoint {
@@ -67,11 +74,14 @@ struct RoomFloor: Sendable {
     /// Placement uses the same floor as walking and never drops the bowl onto
     /// the stationary cat. Existing saved positions are only projected visually.
     func placementNavigator(catAt catPosition: CGPoint? = nil) -> RoomNavigation {
-        let obstacles = catPosition.map {
+        var obstacles = catPosition.map {
             [CGRect(x: $0.x - catFootprint.width / 2 - 3,
                     y: $0.y - catFootprint.height / 2 - 3,
                     width: catFootprint.width + 6, height: catFootprint.height + 6)]
         } ?? []
+        #if os(macOS)
+        if let doorPlacementObstacle { obstacles.append(doorPlacementObstacle) }
+        #endif
         return RoomNavigation(floor: polygon, obstacles: furnitureObstacles + obstacles,
                               footprint: bowlFootprint, cellSize: 7)
     }

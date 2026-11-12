@@ -60,6 +60,22 @@ final class RoomArrangementRendering68: SKNode {
                         grid.worldPoint(grid: CGPoint(x: maxX + 1, y: CGFloat(y))))
                 }
                 gridLines.path = path.copy(dashingWithPhase: 0, lengths: [4, 4])
+                #if os(macOS)
+                if let model = projection.macRoom {
+                    let cells = CGMutablePath()
+                    func line(_ a: CGPoint, _ b: CGPoint) {
+                        for index in 0...24 {
+                            let t = CGFloat(index) / 24
+                            let point = model.projectCell(x: a.x + (b.x - a.x) * t, height: 0.015,
+                                                          z: a.y + (b.y - a.y) * t)
+                            if index == 0 { cells.move(to: point) } else { cells.addLine(to: point) }
+                        }
+                    }
+                    for x in 0...12 { line(CGPoint(x: CGFloat(x), y: 0), CGPoint(x: CGFloat(x), y: 7)) }
+                    for z in 0...7 { line(CGPoint(x: 0, y: CGFloat(z)), CGPoint(x: 12, y: CGFloat(z))) }
+                    gridLines.path = cells.copy(dashingWithPhase: 0, lengths: [4, 4])
+                }
+                #endif
             }
         }
         let center = previewCenter ?? selectedID.flatMap(world.center) ?? world.bowlPosition

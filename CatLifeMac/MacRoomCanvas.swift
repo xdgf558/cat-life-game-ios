@@ -39,6 +39,7 @@ final class MacRoomSKView: SKView {
     var contextMenus = true
     var hoverHints = true { didSet { if !hoverHints { clearHover() } } }
     var contextAction: ((MacRoomContextAction) -> Void)?
+    var structureAction: ((MacRoomStructure) -> Void)?
     var roomScene: RoomScene? { scene as? RoomScene }
     var residentNames: [String: String] = [:]
     private var tracking: NSTrackingArea?
@@ -62,11 +63,12 @@ final class MacRoomSKView: SKView {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties(); applyFrameLimit()
     }
+    private var acceptsPointerInput: Bool { inputEnabled && roomScene?.desktopViewTransitionTask == nil }
     private func point(_ event: NSEvent) -> CGPoint {
         MacRoomPointer.screenPoint(convert(event.locationInWindow, from: nil), height: bounds.height, isFlipped: isFlipped)
     }
     override func mouseDown(with event: NSEvent) {
-        guard inputEnabled, let roomScene else { return }
+        guard acceptsPointerInput, let roomScene else { return }
         window?.makeFirstResponder(self)
         if event.modifierFlags.contains(.control) { rightMouseDown(with: event); return }
         clearHover(); pendingClick?.cancel(); pendingClick = nil
@@ -77,18 +79,28 @@ final class MacRoomSKView: SKView {
                 contextAction?(.closeUp(id))
                 return
             }
+            if roomScene.roomPresentation.hit(screen: point(event), editing: false) == nil,
+               roomScene.roomPresentation.fixedStructure(at: point(event)) == nil {
+                roomScene.cancelCameraInteraction(); ignoresMouseUp = true
+                roomScene.showWholeRoom()
+                return
+            }
         }
         roomScene.beginPointer(at: point(event))
     }
     override func mouseDragged(with event: NSEvent) {
-        guard inputEnabled else { return }
+        guard acceptsPointerInput else { return }
         clearHover()
         if let pressPoint, hypot(point(event).x - pressPoint.x, point(event).y - pressPoint.y) >= 8 { pointerMoved = true }
         roomScene?.movePointer(to: point(event))
     }
     override func mouseUp(with event: NSEvent) {
-        guard inputEnabled, !ignoresMouseUp, let roomScene else { return }
+        guard acceptsPointerInput, !ignoresMouseUp, let roomScene else { return }
         let point = point(event)
+        if !pointerMoved, roomScene.roomPresentation.hit(screen: point, editing: roomScene.editing) == nil,
+           let structure = roomScene.roomPresentation.fixedStructure(at: point) {
+            roomScene.cancelCameraInteraction(); structureAction?(structure); return
+        }
         if roomScene.editing || pointerMoved
             || catID(hit: roomScene.roomPresentation.hit(screen: point, editing: false), scene: roomScene) == nil {
             roomScene.endPointer(at: point)
@@ -102,17 +114,19 @@ final class MacRoomSKView: SKView {
         }
     }
     override func scrollWheel(with event: NSEvent) {
-        guard inputEnabled else { return }
+        guard acceptsPointerInput else { return }
         roomScene?.zoomCamera(at: point(event), factor: MacRoomPointer.zoomFactor(delta: event.scrollingDeltaY, reversed: wheelReversed))
     }
     override func magnify(with event: NSEvent) {
-        guard inputEnabled else { return }
+        guard acceptsPointerInput else { return }
         roomScene?.zoomCamera(at: point(event), factor: max(0.1, 1 + event.magnification))
     }
     override func mouseMoved(with event: NSEvent) {
-        guard inputEnabled, hoverHints, let roomScene, roomScene.presentationActive, !roomScene.dragging,
-              let hit = roomScene.roomPresentation.hit(screen: point(event), editing: roomScene.editing),
-              let frame = roomScene.roomPresentation.frame(hit) else { clearHover(); return }
+        guard acceptsPointerInput, hoverHints, let roomScene, roomScene.presentationActive, !roomScene.dragging else { clearHover(); return }
+        let hit = roomScene.roomPresentation.hit(screen: point(event), editing: roomScene.editing)
+        let structure = hit == nil ? roomScene.roomPresentation.fixedStructure(at: point(event)) : nil
+        let hoveredFrame = hit.flatMap(roomScene.roomPresentation.frame) ?? structure.flatMap(roomScene.roomPresentation.fixedFrame)
+        guard let frame = hoveredFrame else { clearHover(); return }
         if hoverOutline.parent !== roomScene.roomPresentation.root {
             hoverOutline.removeFromParent(); roomScene.roomPresentation.root.addChild(hoverOutline)
         }
@@ -123,9 +137,16 @@ final class MacRoomSKView: SKView {
                           width: frame.width, height: frame.height).insetBy(dx: -3, dy: -3)
         hoverOutline.path = CGPath(roundedRect: rect, cornerWidth: 12, cornerHeight: 12, transform: nil)
         hoverOutline.isHidden = false
-        if let id = catID(hit: hit, scene: roomScene), let name = residentNames[id] {
+        if let structure {
+            let key: String
+            if roomScene.editing { key = structure == .door ? "mac.room.doorFixed" : "mac.room.stairsFixed" }
+            else if structure == .door { key = "mac.room.door" }
+            else if roomScene.renderedRoomLevel < 6 { key = "mac.room.stairsLocked" }
+            else { key = roomScene.homeFloor == .ground ? "mac.room.upstairs" : "mac.room.downstairs" }
+            toolTip = GameStrings.text(key)
+        } else if let id = catID(hit: hit, scene: roomScene), let name = residentNames[id] {
             toolTip = name + " · " + GameStrings.text("mac.hover.cat")
-        } else if hit.hasPrefix("furniture-"), let item = roomScene.ownedFurniture.first(where: { "furniture-" + $0.id == hit }) {
+        } else if let hit, hit.hasPrefix("furniture-"), let item = roomScene.ownedFurniture.first(where: { "furniture-" + $0.id == hit }) {
             toolTip = GameStrings.text(FurnitureCatalog.metadata(for: item.kind).nameKey) + " · " + GameStrings.text("mac.hover.furniture")
         } else { toolTip = GameStrings.text(hit == "bowl" ? "layout.bowl" : "mac.hover.floor") }
         NSCursor.pointingHand.set()
@@ -135,9 +156,12 @@ final class MacRoomSKView: SKView {
         hoverOutline.isHidden = true; toolTip = nil; NSCursor.arrow.set()
     }
     override func rightMouseDown(with event: NSEvent) {
-        guard inputEnabled, contextMenus, let roomScene, !roomScene.isPlacementPending else { return }
+        guard acceptsPointerInput, contextMenus, let roomScene, !roomScene.isPlacementPending else { return }
         clearHover(); pendingClick?.cancel(); pendingClick = nil; roomScene.cancelCameraInteraction()
         let hit = roomScene.roomPresentation.hit(screen: point(event), editing: roomScene.editing)
+        if hit == nil, let structure = roomScene.roomPresentation.fixedStructure(at: point(event)) {
+            structureAction?(structure); return
+        }
         var entries: [(String, MacRoomContextAction)] = []
         if let id = catID(hit: hit, scene: roomScene), roomScene.canInspectResidents {
             if id != roomScene.displayedCatID { entries.append(("companion", .companion(id))) }
@@ -159,7 +183,7 @@ final class MacRoomSKView: SKView {
         menuActions.removeAll()
     }
     @objc private func selectedContextItem(_ item: NSMenuItem) {
-        guard inputEnabled, menuActions.indices.contains(item.tag) else { return }
+        guard acceptsPointerInput, menuActions.indices.contains(item.tag) else { return }
         contextAction?(menuActions[item.tag])
     }
     private func catID(hit: String?, scene: RoomScene) -> String? {
@@ -175,15 +199,19 @@ struct MacRoomCanvas: View {
     let scene: RoomScene
     let isActive: Bool
     var readOnlyPreview = false
+    var initialViewAngle: RoomViewAngle = .front
     var frameLimit = 60
     var wheelReversed = false
     var contextMenus = true
     var hoverHints = true
+    var isDaylight = true
+    var usableRect: CGRect?
     var needPresentation: CatNeedPresentation?
     var onRestRequest: ((String) -> Void)?
     var onRestSceneChanged: ((HomeRestScene68) -> Void)?
     var onContextAction: ((MacRoomContextAction) -> Void)?
     var onViewChanged: (() -> Void)?
+    var onFixedStructure: ((MacRoomStructure) -> Void)?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @Environment(\.gameReduceMotionOverride) private var motionOverride
@@ -191,10 +219,10 @@ struct MacRoomCanvas: View {
     var body: some View {
         GeometryReader { geometry in
             MacNativeRoomCanvas(store: store, scene: scene, isActive: isActive,
-                readOnlyPreview: readOnlyPreview, previewIsVisible: scenePhase == .active, canvasSize: geometry.size,
+                readOnlyPreview: readOnlyPreview, previewIsVisible: scenePhase == .active, initialViewAngle: initialViewAngle, canvasSize: geometry.size,
                 frameLimit: frameLimit, wheelReversed: wheelReversed, contextMenus: contextMenus, hoverHints: hoverHints,
-                reducedMotion: reducedMotion || motionOverride, needPresentation: needPresentation, onRestRequest: onRestRequest,
-                onRestSceneChanged: onRestSceneChanged, onContextAction: onContextAction, onViewChanged: onViewChanged)
+                isDaylight: isDaylight, usableRect: usableRect, reducedMotion: reducedMotion || motionOverride, needPresentation: needPresentation, onRestRequest: onRestRequest,
+                onRestSceneChanged: onRestSceneChanged, onContextAction: onContextAction, onViewChanged: onViewChanged, onFixedStructure: onFixedStructure)
                 .onDrop(of: [UTType.text], isTargeted: nil) { providers, point in receiveDrop(providers, at: point) }
                 .onChange(of: geometry.frame(in: .global).origin, initial: true) { _, origin in needPresentation?.canvasOrigin = origin }
         }
@@ -223,17 +251,21 @@ private struct MacNativeRoomCanvas: NSViewRepresentable {
     let isActive: Bool
     let readOnlyPreview: Bool
     let previewIsVisible: Bool
+    let initialViewAngle: RoomViewAngle
     let canvasSize: CGSize
     let frameLimit: Int
     let wheelReversed: Bool
     let contextMenus: Bool
     let hoverHints: Bool
+    let isDaylight: Bool
+    let usableRect: CGRect?
     let reducedMotion: Bool
     let needPresentation: CatNeedPresentation?
     let onRestRequest: ((String) -> Void)?
     let onRestSceneChanged: ((HomeRestScene68) -> Void)?
     let onContextAction: ((MacRoomContextAction) -> Void)?
     let onViewChanged: (() -> Void)?
+    let onFixedStructure: ((MacRoomStructure) -> Void)?
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> MacRoomSKView {
         let view = MacRoomSKView(); view.ignoresSiblingOrder = true
@@ -251,6 +283,8 @@ private struct MacNativeRoomCanvas: NSViewRepresentable {
         coordinator.source = self
         coordinator.attachIfNeeded()
         scene.reducedMotion = reducedMotion
+        scene.backgroundColor = readOnlyPreview ? .clear : NSColor(red: 0.98, green: 0.95, blue: 0.89, alpha: 1)
+        scene.roomPresentation.configureDesktop(isDaylight: isDaylight, showsBackdrop: !readOnlyPreview)
         let active = isActive && !readOnlyPreview && !store.isChangingHomeFloor
         let previewing = readOnlyPreview && previewIsVisible && isActive
         scene.setReadOnlyPreviewEnabled(previewing)
@@ -269,10 +303,12 @@ private struct MacNativeRoomCanvas: NSViewRepresentable {
             scene.apply(snapshot: snapshot, editing: store.isDecorating, selectedFurnitureID: store.selectedFurnitureID,
                         placingFurnitureID: store.placingFurnitureID)
         }
-        scene.setRoomViewUsableRect(CGRect(x: 20, y: 20, width: max(1, canvasSize.width - 40), height: max(1, canvasSize.height - 40)))
+        let desktopArea = usableRect ?? CGRect(x: 26, y: 90, width: max(1, canvasSize.width - 52), height: max(1, canvasSize.height - 192))
+        scene.setRoomViewUsableRect(desktopArea)
         coordinator.prepareDesktopView()
         if view.scene !== scene { view.presentScene(scene) }
         view.contextAction = { action in guard coordinator.acceptsUpdates else { return }; coordinator.source.onContextAction?(action) }
+        view.structureAction = { structure in guard coordinator.acceptsUpdates else { return }; coordinator.source.onFixedStructure?(structure) }
         view.residentNames = Dictionary(uniqueKeysWithValues: (store.snapshot?.cats ?? []).map { ($0.id, GameStrings.catName($0)) })
         view.wheelReversed = wheelReversed; view.contextMenus = contextMenus; view.hoverHints = hoverHints
         view.inputEnabled = active && !store.isSavingLayout
@@ -303,7 +339,7 @@ private struct MacNativeRoomCanvas: NSViewRepresentable {
         func prepareDesktopView() {
             guard !requestedDesktopView else { return }
             requestedDesktopView = true
-            source.scene.prepareDesktopView()
+            source.scene.prepareDesktopView(initialAngle: source.initialViewAngle)
         }
         func attachIfNeeded() {
             let store = source.store, scene = source.scene
@@ -318,6 +354,10 @@ private struct MacNativeRoomCanvas: NSViewRepresentable {
             let accepts: @MainActor () -> Bool = { [weak self, weak scene] in
                 guard let self, let scene else { return false }
                 return self.acceptsUpdates && self.generation == attachedGeneration && self.floor == attachedFloor && self.source.scene === scene
+            }
+            scene.onFixedStructureTapped = { [weak self] structure in
+                guard let self, accepts(), self.source.isActive else { return }
+                self.source.onFixedStructure?(structure)
             }
             scene.onPlacementPendingChanged = { [weak self] in guard let self, accepts() else { return }; self.source.store.setLayoutResolving($0) }
             scene.onCatTapped = { [weak self] in guard let self, accepts(), let id = self.source.store.cat?.id else { return }; self.source.onContextAction?(.profile(id)) }

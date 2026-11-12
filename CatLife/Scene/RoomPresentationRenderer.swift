@@ -28,6 +28,30 @@ final class RoomPresentationRenderer {
     private var configuredUsableRect: CGRect?
     private var cameraUsableRect = CGRect.zero
     private var frontFramingBounds: CGRect?
+    #if os(macOS)
+    func configureDesktop(isDaylight: Bool, showsBackdrop: Bool) {
+        backdrop.isHidden = !showsBackdrop
+        guard shell.desktopDaylight != isDaylight else { return }
+        shell.desktopDaylight = isDaylight
+        if projection.macRoom != nil {
+            shell.configure(projection: projection, floorPolygon: polygon, worldSize: worldSize, floor: homeFloor)
+        }
+    }
+    func fixedStructure(at point: CGPoint) -> MacRoomStructure? {
+        let projected = camera.worldPoint(viewPoint: point)
+        return MacRoomStructure.allCases.first { structure in
+            guard let points = shell.desktopArtwork.fixedPolygons[structure] else { return false }
+            let path = CGMutablePath(); path.addLines(between: points); path.closeSubpath()
+            return path.contains(projected)
+        }
+    }
+    func fixedFrame(_ structure: MacRoomStructure) -> CGRect? {
+        guard let source = shell.desktopArtwork.fixedFrames[structure] else { return nil }
+        let a = camera.viewPoint(projectedWorld: CGPoint(x: source.minX, y: source.maxY))
+        let b = camera.viewPoint(projectedWorld: CGPoint(x: source.maxX, y: source.minY))
+        return CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
+    }
+    #endif
     private var framingNeedsUpdate = true
     #if DEBUG
     private(set) var framingUpdateCount = 0
@@ -77,6 +101,11 @@ final class RoomPresentationRenderer {
         if geometryChanged {
             frontFramingBounds = nil
             invalidateFraming()
+            #if os(macOS)
+            projection = RoomViewProjection(worldSize: world, angle: angle)
+            projection.macRoom = MacRoomProjection(legacyFloor: floor, worldSize: world, angle: angle)
+            shell.desktopLevel = level
+            #else
             let minX = floor.map(\.x).min()!, maxX = floor.map(\.x).max()!
             let minY = floor.map(\.y).min()!, maxY = floor.map(\.y).max()!
             let footprint = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
@@ -87,15 +116,22 @@ final class RoomPresentationRenderer {
                 height: footprint.width * max(1, normalArea.height) / max(1, normalArea.width) * 0.66)
             let front = angle == .front ? RoomFrontFloorProjection(polygon: floor, destination: frontBounds) : nil
             projection = RoomViewProjection(worldSize: world, angle: angle, frontFloor: front)
+            #endif
             shell.configure(projection: projection, floorPolygon: floor, worldSize: world, floor: homeFloor)
         }
         let mappingChanged = previousProjection.frontFloor?.destination != projection.frontFloor?.destination
         let previousCenter = !reset && !wasWholeRoom && mappingChanged
             ? previousProjection.unproject(camera.center) : nil
+        #if os(macOS)
+        let cameraBounds = shell.contentBounds
+        let zoomScale: CGFloat = 1.0625 // 1.7× maximum desktop close-up with RoomViewCamera's existing clamp.
+        #else
         let cameraBounds = projection.frontFloor == nil ? shell.contentBounds.insetBy(dx: -24, dy: -24)
             : frontFramingBounds?.insetBy(dx: -2, dy: -2) ?? shell.contentBounds
+        let zoomScale = scale
+        #endif
         camera.configure(bounds: cameraBounds, viewport: viewport,
-                         usableRect: usable, worldScale: scale, reset: reset)
+                         usableRect: usable, worldScale: zoomScale, reset: reset)
         if !reset, mappingChanged {
             if wasWholeRoom { camera.fit() }
             else if let previousCenter { camera.recenter(on: projection.project(previousCenter)) }
@@ -120,7 +156,7 @@ final class RoomPresentationRenderer {
                 reducedMotion: Bool = false) {
         var active = Set<String>()
         func sync(_ key: String, _ source: SKNode, anchor: CGPoint? = nil, depth: CGFloat? = nil,
-                  variant: FurnitureArtwork68.Variant? = nil, lift: CGFloat = 0) {
+                  variant: FurnitureArtwork68.Variant? = nil, lift: CGFloat = 0, displayScale: CGFloat? = nil) {
             active.insert(key)
             let mirror: RoomNodeMirror
             if let existing = mirrors[key] { mirror = existing }
@@ -150,6 +186,12 @@ final class RoomPresentationRenderer {
                 artworkNames[key] = variant.assetName
                 artworkAngles[key] = projection.angle
             }
+            #if os(macOS)
+            if let model = projection.macRoom {
+                let factor = displayScale ?? model.perspectiveScale(at: source.position)
+                mirror.node.xScale *= factor; mirror.node.yScale *= factor
+            }
+            #endif
             objectFrames[key] = mirror.node.calculateAccumulatedFrame()
             objectDepths[key] = mirror.node.zPosition
         }
@@ -158,19 +200,36 @@ final class RoomPresentationRenderer {
             let wall = FurnitureCatalog.metadata(for: item.kind).isWall
             let placement = world?.placements.first { $0.itemID == id }
             // The rectified front room has one flat wall; side views expose its two physical surfaces.
+            #if os(macOS)
+            let artworkPlacement = wall ? nil : placement
+            #else
             let artworkPlacement = wall && projection.frontFloor != nil ? nil : placement
+            #endif
             let variant = world == nil ? nil : FurnitureArtwork68.variant(for: item, angle: projection.angle, placement: artworkPlacement)
             let key = "furniture-" + id
             let selected = editing && selectedID == id
+            var artworkScale: CGFloat? = nil
+            #if os(macOS)
+            if wall, let model = projection.macRoom {
+                let cellX = (node.position.x - model.logicalBounds.minX) / model.logicalBounds.width * MacRoomProjection.columns
+                artworkScale = model.scale(atCell: CGPoint(x: cellX, y: 7))
+            }
+            #endif
             sync(key, node, anchor: wall ? projection.wallPoint(node.position) : nil,
                  depth: wall ? 100 : nil, variant: variant,
-                 lift: selected && !wall ? max(5, node.size.width * 0.06) : 0)
+                 lift: selected && !wall ? max(5, node.size.width * 0.06) : 0, displayScale: artworkScale)
             if !wall {
                 let shadow: RoomContactShadow68
                 if let old = contactShadows[id] { shadow = old }
                 else { shadow = RoomContactShadow68(); contactShadows[id] = shadow; content.addChild(shadow) }
                 let footprint = world?.footprint(item) ?? CGSize(width: node.size.width * 0.65, height: node.size.width * 0.25)
-                shadow.update(center: projection.project(node.position), size: footprint,
+                #if os(macOS)
+                let factor = projection.macRoom?.perspectiveScale(at: node.position) ?? 1
+                let shadowSize = CGSize(width: footprint.width * factor, height: footprint.height * factor)
+                #else
+                let shadowSize = footprint
+                #endif
+                shadow.update(center: projection.project(node.position), size: shadowSize,
                               selected: selected, hidden: node.isHidden, alpha: node.alpha)
             }
         }
@@ -195,6 +254,10 @@ final class RoomPresentationRenderer {
                             surface: "foodSurfaceCenter", defaultFraction: 0.45)
         }
         var catAnchor = projection.project(cat.position)
+        var catDisplayScale: CGFloat? = nil
+        #if os(macOS)
+        catDisplayScale = projection.macRoom?.perspectiveScale(at: cat.position)
+        #endif
         var catDepth = 10_000 - projection.projectedDepth(cat.position)
         // A calibrated mouth/paw contact is local artwork space, not a second
         // ground position. Blend into that space only near the active target.
@@ -205,8 +268,14 @@ final class RoomPresentationRenderer {
             let t = min(1, max(0, (3 * width - distance) / (1.5 * width)))
             let blend = t * t * (3 - 2 * t)
             let base = projection.project(target.position)
-            let contact = CGPoint(x: base.x + cat.position.x - target.position.x,
-                                  y: base.y + cat.position.y - target.position.y)
+            #if os(macOS)
+            let factor = projection.macRoom?.perspectiveScale(at: target.position) ?? 1
+            catDisplayScale = (catDisplayScale ?? 1) + (factor - (catDisplayScale ?? 1)) * blend
+            #else
+            let factor: CGFloat = 1
+            #endif
+            let contact = CGPoint(x: base.x + (cat.position.x - target.position.x) * factor,
+                                  y: base.y + (cat.position.y - target.position.y) * factor)
             catAnchor.x += (contact.x - catAnchor.x) * blend
             catAnchor.y += (contact.y - catAnchor.y) * blend
             if blend == 1 {
@@ -222,18 +291,18 @@ final class RoomPresentationRenderer {
         let contactOffset = furnitureContact68.update(cat: cat, rest: rest, furniture: restingNode,
             variant: restVariant, referenceWidth: restingNode?.size.width ?? 1,
             bowl: bowl, bowlVariant: bowlVariant, feeding: feeding)
-        catAnchor.x += contactOffset.x; catAnchor.y += contactOffset.y
-        sync("cat", cat, anchor: catAnchor, depth: catDepth)
+        catAnchor.x += contactOffset.x * (catDisplayScale ?? 1); catAnchor.y += contactOffset.y * (catDisplayScale ?? 1)
+        sync("cat", cat, anchor: catAnchor, depth: catDepth, displayScale: catDisplayScale)
         if let sprite = mirrors["cat"]?.mirroredNode(for: cat.renderSprite68) as? SKSpriteNode {
             furnitureContact68.applyPawCorrection(to: sprite, sourceSprite: cat.renderSprite68)
         }
         if let companionRing {
-            sync("companion-ring", companionRing, anchor: catAnchor, depth: catDepth - 0.5)
+            sync("companion-ring", companionRing, anchor: catAnchor, depth: catDepth - 0.5, displayScale: catDisplayScale)
         }
         if let companionPlaque {
-            let anchor = CGPoint(x: catAnchor.x + companionPlaque.position.x - cat.position.x,
-                                 y: catAnchor.y + companionPlaque.position.y - cat.position.y)
-            sync("companion-name", companionPlaque, anchor: anchor, depth: 20_001)
+            let anchor = CGPoint(x: catAnchor.x + (companionPlaque.position.x - cat.position.x) * (catDisplayScale ?? 1),
+                                 y: catAnchor.y + (companionPlaque.position.y - cat.position.y) * (catDisplayScale ?? 1))
+            sync("companion-name", companionPlaque, anchor: anchor, depth: 20_001, displayScale: catDisplayScale)
         }
         for (id, actor) in residents.actors { sync("resident-" + id, actor) }
         if let rest, let target = furniture[rest.item.id] {
@@ -255,8 +324,9 @@ final class RoomPresentationRenderer {
         sync("toy", toy)
         for particle in particles {
             sync("particle-\(ObjectIdentifier(particle))", particle,
-                 anchor: CGPoint(x: catAnchor.x + particle.position.x - cat.position.x,
-                                 y: catAnchor.y + particle.position.y - cat.position.y), depth: 30_000)
+                 anchor: CGPoint(x: catAnchor.x + (particle.position.x - cat.position.x) * (catDisplayScale ?? 1),
+                                 y: catAnchor.y + (particle.position.y - cat.position.y) * (catDisplayScale ?? 1)), depth: 30_000,
+                 displayScale: catDisplayScale)
         }
         for key in Array(mirrors.keys) where !active.contains(key) {
             mirrors.removeValue(forKey: key)?.node.removeFromParent()
@@ -299,6 +369,11 @@ final class RoomPresentationRenderer {
         sprite.size = CGSize(width: size.width, height: size.height * fraction)
         sprite.anchorPoint = CGPoint(x: variant.anchorPoint.x, y: variant.anchorPoint.y / fraction)
         sprite.xScale = 1; sprite.yScale = 1
+        #if os(macOS)
+        let anchor = groundAnchors[key].map(projection.unproject) ?? .zero
+        let factor = projection.macRoom?.perspectiveScale(at: anchor) ?? 1
+        sprite.setScale(factor)
+        #endif
         objectFrames[key] = sprite.calculateAccumulatedFrame()
     }
 
@@ -325,8 +400,13 @@ final class RoomPresentationRenderer {
     func displayedPoint(_ logicalPoint: CGPoint, source: SKNode, key: String) -> CGPoint? {
         guard let mirror = mirrors[key], !mirror.node.isHidden else { return nil }
         let logicalPoint = (source as? CatActor).map { furnitureContact68.adjustedPoint(logicalPoint, cat: $0) } ?? logicalPoint
-        return camera.viewPoint(projectedWorld: CGPoint(x: mirror.node.position.x + logicalPoint.x - source.position.x,
-                                                       y: mirror.node.position.y + logicalPoint.y - source.position.y))
+        #if os(macOS)
+        let sx = mirror.node.xScale, sy = mirror.node.yScale
+        #else
+        let sx: CGFloat = 1, sy: CGFloat = 1
+        #endif
+        return camera.viewPoint(projectedWorld: CGPoint(x: mirror.node.position.x + (logicalPoint.x - source.position.x) * sx,
+                                                       y: mirror.node.position.y + (logicalPoint.y - source.position.y) * sy))
     }
 
     func anchor(_ key: String) -> CGPoint? {

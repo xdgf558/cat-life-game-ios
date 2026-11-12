@@ -38,6 +38,11 @@ final class GameStore {
     private(set) var needsNewerVersion = false
     // Welcome presentation belongs to this process, not the durable game save.
     private(set) var hasEnteredHome = false
+    #if os(macOS)
+    private(set) var macPreviousSaveAt: Date?
+    private(set) var macRoomRepairFailed = false
+    @ObservationIgnored private var macPendingCreatedSnapshots: [GameSnapshot] = []
+    #endif
     var startupNotice: String? { notices.startupNotice }
     var showSaveError = false
     var activeSheet: HomeSheet? {
@@ -388,7 +393,7 @@ final class GameStore {
 
     var placedFurnitureCount: Int { sceneSnapshot?.home.furniture.count ?? 0 }
 
-    var furnitureCapacity: Int { HomeCatalog.level(snapshot?.home.roomLevel ?? 1)?.capacity(on: visibleHomeFloor) ?? 9 }
+    var furnitureCapacity: Int { furnitureCapacity(on: visibleHomeFloor) }
     var canPlaceMoreFurniture: Bool { availableFurnitureSlots(on: visibleHomeFloor) > 0 }
     var canUpgradeHome: Bool { HomeCatalog.nextLevel(after: snapshot?.home.roomLevel ?? 1) != nil }
 
@@ -675,6 +680,9 @@ final class GameStore {
         }
         _ = GameEngine.synchronize(&candidate, now: importDate)
         do {
+            #if os(macOS)
+            candidate = try await MacRoomSaveRepair.prepare(candidate, now: importDate)
+            #endif
             if afterLoadFailure { try await repository.restoreSnapshotAfterLoadFailure(candidate) }
             else { try await repository.importSnapshot(candidate) }
         } catch SaveRepositoryError.currentSaveReadable {
@@ -726,6 +734,11 @@ final class GameStore {
         lastSyncCheck = importDate
         silentProgressThrough = nil
         snapshot = candidate
+        #if os(macOS)
+        macPreviousSaveAt = archive.snapshot.meta.lastSyncAt
+        macRoomRepairFailed = false
+        macPendingCreatedSnapshots.removeAll()
+        #endif
         onboarding.didImport(snapshot: candidate)
         sharedHomeNoticeDefaults.removeObject(forKey: Self.sharedHomeSpaceNoticesKey)
         visibleHomeFloor = .ground
@@ -745,6 +758,9 @@ final class GameStore {
         }
         showNotice(GameStrings.text(afterLoadFailure ? "saveTransfer.failureRestored"
             : (isRecovery ? "saveTransfer.restored" : "saveTransfer.imported")))
+        #if os(macOS)
+        if candidate.home != archive.snapshot.home { showNotice(GameStrings.text("mac.room.repaired")) }
+        #endif
     }
 
     func showFurnitureNotice(_ key: String) { showNotice(GameStrings.text(key)) }
@@ -771,6 +787,9 @@ final class GameStore {
         isLoading = true
         loadFailed = false
         needsNewerVersion = false
+        #if os(macOS)
+        macRoomRepairFailed = false
+        #endif
         startupProgress = 0
         startupPhase = "welcome.loadingSave"
         defer {
@@ -806,27 +825,57 @@ final class GameStore {
             snapshot = nil
             return
         }
-        // A successful read remains usable even if reconciliation cannot write.
-        snapshot = loaded
-        onboarding.prepare(snapshot: loaded, disposition: loadDisposition)
+        #if os(macOS)
+        let prepared: GameSnapshot
+        if case .created = loadDisposition {
+            // Match the exact in-memory or encoded/read-back snapshot on a manual retry.
+            // No time tolerance can mistake an unrelated imported save for a new home.
+            macPendingCreatedSnapshots = [loaded]
+            if let data = try? NativeSaveTransfer.encode(snapshot: loaded, exportedAt: loaded.meta.lastSyncAt),
+               let diskValue = try? NativeSaveTransfer.decode(data, now: loaded.meta.lastSyncAt).snapshot {
+                macPendingCreatedSnapshots.append(diskValue)
+            }
+        }
+        let isNewHome = macPendingCreatedSnapshots.contains(loaded)
+        do {
+            prepared = try await MacRoomSaveRepair.prepare(loaded, now: Date(), isNewHome: isNewHome)
+            if prepared != loaded { try await repository.save(prepared) }
+            macPendingCreatedSnapshots.removeAll()
+        } catch {
+            // A required geometry repair is published only after its durable commit.
+            macRoomRepairFailed = true
+            loadFailed = true
+            snapshot = nil
+            return
+        }
+        #else
+        let prepared = loaded
+        #endif
+        // Ordinary clock reconciliation still keeps a successful read usable on write failure.
+        snapshot = prepared
+        #if os(macOS)
+        if case .created = loadDisposition { macPreviousSaveAt = nil }
+        else { macPreviousSaveAt = loaded.meta.lastSyncAt }
+        #endif
+        onboarding.prepare(snapshot: prepared, disposition: loadDisposition)
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--ui-testing"),
            ProcessInfo.processInfo.arguments.contains("--skip-onboarding") {
             onboarding.finish()
         }
         #endif
-        GameLocalization.shared.language = loaded.settings.language
+        GameLocalization.shared.language = prepared.settings.language
             ?? GameLanguage.preferred(in: Locale.preferredLanguages)
         startupProgress = 1.0 / 3
         startupPhase = "welcome.syncing"
         await Task.yield()
         let loadDate = Date()
-        if let session = loaded.catPlay.activeSession {
+        if let session = prepared.catPlay.activeSession {
             pendingCatPlayEnd = PendingCatPlayEnd(catID: session.catID, sessionID: session.id, occurredAt: loadDate)
         }
         silentProgressThrough = max(silentProgressThrough ?? .distantPast, loadDate)
         let hadCatRest = loaded.cats.contains { $0.activeRest != nil }
-        for cat in loaded.cats {
+        for cat in prepared.cats {
             if let rest = cat.activeRest {
                 restTransitions.append(RestTransition(catID: cat.id, furnitureID: nil,
                     sessionID: rest.id, occurredAt: loadDate))
@@ -848,6 +897,11 @@ final class GameStore {
         lastSyncCheck = now
         if let cat { recordHabitStudy("launch", catID: cat.id) }
         var notices: [String] = []
+        #if os(macOS)
+        if prepared.home != loaded.home {
+            notices.append(GameStrings.text("mac.room.repaired"))
+        }
+        #endif
         if case .recoveredBackup = loadDisposition { notices.append(GameStrings.text("save.recovered")) }
         if hadCatRest { notices.append(GameStrings.text("rest.loadEnded")) }
         if !notices.isEmpty { showNotice(notices.joined(separator: "\n")) }
@@ -1000,7 +1054,7 @@ final class GameStore {
         perform(presentSuccess: { [weak self] in
             guard let self, self.saveSceneGeneration == generation,
                   self.snapshot?.home.roomLevel == toLevel else { return false }
-            self.homeUpgradeCelebration = HomeUpgradeCelebration(level: toLevel)
+            self.homeUpgradeCelebration = HomeUpgradeCelebration(level: toLevel, rules: self.homeLayoutRules)
             return true
         }) { GameEngine.upgradeHome(&$0, toLevel: toLevel, now: $1) }
     }
@@ -1242,7 +1296,7 @@ final class GameStore {
               let orientations = draftFurnitureOrientations else { return }
         perform(finishesLayout: true) {
             GameEngine.setRoomLayout(&$0, bowlPosition: point, furniture: furniture,
-                                     orientations: orientations, floor: self.visibleHomeFloor, now: $1)
+                                     orientations: orientations, floor: self.visibleHomeFloor, rules: self.homeLayoutRules, now: $1)
         }
     }
 

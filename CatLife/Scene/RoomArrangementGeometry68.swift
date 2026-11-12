@@ -9,10 +9,16 @@ struct RoomArrangementGrid68: Sendable {
     var unit: CGSize { CGSize(width: 128 * transform.visualScale, height: 64 * transform.visualScale) }
 
     func gridPoint(world: CGPoint) -> CGPoint {
-        CGPoint(x: (world.x - origin.x) / unit.width, y: (world.y - origin.y) / unit.height)
+        #if os(macOS)
+        if let model = MacRoomReservations.projection(transform: transform) { return model.cellPoint(logical: world) }
+        #endif
+        return CGPoint(x: (world.x - origin.x) / unit.width, y: (world.y - origin.y) / unit.height)
     }
     func worldPoint(grid: CGPoint) -> CGPoint {
-        CGPoint(x: origin.x + grid.x * unit.width, y: origin.y + grid.y * unit.height)
+        #if os(macOS)
+        if let model = MacRoomReservations.projection(transform: transform) { return model.logicalPoint(cell: grid) }
+        #endif
+        return CGPoint(x: origin.x + grid.x * unit.width, y: origin.y + grid.y * unit.height)
     }
     func snapped(_ world: CGPoint, enabled: Bool) -> CGPoint {
         let point = gridPoint(world: world), step: CGFloat = enabled ? 0.5 : 0.1
@@ -31,7 +37,12 @@ struct RoomArrangementGrid68: Sendable {
         }
         func length(_ distance: CGFloat) -> CGFloat {
             let target = candidate(distance)
+            #if os(macOS)
+            let a = gridPoint(world: point), b = gridPoint(world: target)
+            return hypot(b.x - a.x, b.y - a.y)
+            #else
             return hypot((target.x - point.x) / unit.width, (target.y - point.y) / unit.height)
+            #endif
         }
         var lower: CGFloat = 0, upper = max(unit.width, unit.height) * CGFloat(step) * 2
         guard step.isFinite, step > 0, upper.isFinite, upper > 0 else { return point }
@@ -68,16 +79,21 @@ struct RoomArrangementResolution68: Sendable {
 }
 
 enum RoomArrangementPlanning68 {
-    static func issue(id: String?, at point: CGPoint, world: RoomFurnitureWorld) -> ArrangementIssue68? {
+    static func issue(id: String?, at point: CGPoint, world: RoomFurnitureWorld,
+                      preservingLegacyFootprints: Bool = false) -> ArrangementIssue68? {
         guard point.x.isFinite, point.y.isFinite else { return .outside }
         // A real move adopts the new footprint before any bounds/overlap check.
-        let world = id.map { world.replacing($0, with: point) } ?? world
+        let world = id.map { world.replacing($0, with: point, preservingLegacyFootprint: preservingLegacyFootprints) } ?? world
         let item = id.flatMap(world.item)
         let wall = item.map { FurnitureCatalog.metadata(for: $0.kind).isWall } ?? false
         let center = item == nil ? world.roomFloor.bowlGround(at: point) : point
         let footprint = item.map(world.footprint) ?? world.roomFloor.bowlFootprint
         let rectangle = CGRect(x: center.x - footprint.width / 2, y: center.y - footprint.height / 2,
                                width: footprint.width, height: footprint.height)
+        #if os(macOS)
+        if !wall, let model = MacRoomReservations.projection(transform: world.transform),
+           MacRoomReservations.intersects(rectangle, projection: model) { return .outside }
+        #endif
         for placement in world.placements where placement.itemID != id {
             guard let other = world.item(placement.itemID), FurnitureCatalog.metadata(for: other.kind).isWall == wall else { continue }
             if rectangle.intersects(world.rectangle(other, at: world.transform.point(placement.position)).insetBy(dx: -2, dy: -2)) {
@@ -95,7 +111,8 @@ enum RoomArrangementPlanning68 {
 
     static func resolve(id: String?, at requested: CGPoint, world: RoomFurnitureWorld, cat: CGPoint,
                         grid: RoomArrangementGrid68, snap: Bool, findNearest: Bool,
-                        snapPoint: Bool = true, otherCats: [CGRect] = []) -> RoomArrangementResolution68 {
+                        snapPoint: Bool = true, otherCats: [CGRect] = [], preservingLegacyFootprints: Bool = false,
+                        validatesAllRestPlaces: Bool = false, placementFloor: HomeFloor? = nil) -> RoomArrangementResolution68 {
         let requested = snapPoint ? grid.snapped(requested, enabled: snap) : requested
         var candidates = [requested]
         if findNearest {
@@ -104,12 +121,12 @@ enum RoomArrangementPlanning68 {
                 hypot($0.x - requested.x, $0.y - requested.y) < hypot($1.x - requested.x, $1.y - requested.y)
             }.map { grid.snapped($0, enabled: snap) }
         }
-        let initialIssue = issue(id: id, at: requested, world: world)
+        let initialIssue = issue(id: id, at: requested, world: world, preservingLegacyFootprints: preservingLegacyFootprints)
         for point in candidates {
             if Task<Never, Never>.isCancelled { break }
-            guard issue(id: id, at: point, world: world) == nil else { continue }
+            guard issue(id: id, at: point, world: world, preservingLegacyFootprints: preservingLegacyFootprints) == nil else { continue }
             let proposed: RoomFurnitureWorld
-            if let id { proposed = world.replacing(id, with: point) }
+            if let id { proposed = world.replacing(id, with: point, preservingLegacyFootprint: preservingLegacyFootprints, placementFloor: placementFloor) }
             else {
                 proposed = .init(transform: world.transform, catWidth: world.catWidth, bowlSize: world.bowlSize,
                     bowlPosition: point, items: world.items, placements: world.placements)
@@ -131,9 +148,14 @@ enum RoomArrangementPlanning68 {
                                     navigator: navigation, firstReachable: true) != nil else { continue }
             if let id, let item = proposed.item(id), [.catBed, .floorCushion].contains(item.kind),
                proposed.restVisit(to: id, from: safeCat, additionalObstacles: otherCats) == nil { continue }
+            if validatesAllRestPlaces {
+                let resting = proposed.placements.compactMap { proposed.item($0.itemID) }
+                    .filter { [.catBed, .floorCushion].contains($0.kind) }
+                guard resting.allSatisfy({ proposed.restVisit(to: $0.id, from: safeCat, additionalObstacles: otherCats) != nil }) else { continue }
+            }
             return .init(world: proposed, point: point, issue: nil, catRoute: route)
         }
-        let proposed = id.map { world.replacing($0, with: requested) } ?? world
+        let proposed = id.map { world.replacing($0, with: requested, preservingLegacyFootprint: preservingLegacyFootprints, placementFloor: placementFloor) } ?? world
         return .init(world: proposed, point: requested, issue: initialIssue ?? .blocked, catRoute: [])
     }
 }

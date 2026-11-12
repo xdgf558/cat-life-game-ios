@@ -17,7 +17,10 @@ extension RoomScene {
     }
 
     var canZoomCamera: Bool {
-        presentationActive && deferredRoomLayoutFromSize == nil
+        #if os(macOS)
+        if desktopViewTransitionTask != nil { return false }
+        #endif
+        return presentationActive && deferredRoomLayoutFromSize == nil
             && bowlPlanningRequest == nil && size.width > 0 && size.height > 0
     }
 
@@ -126,6 +129,9 @@ extension RoomScene {
 
     /// Both platforms enter the same projection, drag and release planning path.
     func beginPointer(at screen: CGPoint) {
+        #if os(macOS)
+        guard desktopViewTransitionTask == nil else { return }
+        #endif
         guard presentationActive, !roomPresentation.camera.isPinching, bowlPlanningRequest == nil else { return }
         blockedTouchSequence = false
         let point = roomPresentation.worldPoint(screen: screen)
@@ -243,6 +249,12 @@ extension RoomScene {
         let point = screen
         guard hypot(point.x - origin.x, point.y - origin.y) < 12 else { return }
         let hit = roomPresentation.hit(screen: point, editing: false)
+        #if os(macOS)
+        if hit == nil, let structure = roomPresentation.fixedStructure(at: point) {
+            onFixedStructureTapped?(structure)
+            return
+        }
+        #endif
         if hit == "bowl" { onBowlTapped?() }
         else if hit == "cat" {
             if activeRest != nil { pendingRestID = nil; leaveFurnitureRest() }

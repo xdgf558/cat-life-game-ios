@@ -1,6 +1,20 @@
 import CatGameCore
 
 extension GameStore {
+    var homeLayoutRules: HomeLayoutRules {
+        #if os(macOS)
+        .macDesktop
+        #else
+        .standard
+        #endif
+    }
+
+    func totalFurnitureCapacity(for home: HomeLevel) -> Int { home.capacity(using: homeLayoutRules) }
+    func floorFurnitureCapacity(for home: HomeLevel) -> Int { home.floorCapacity(using: homeLayoutRules) }
+    func furnitureCapacity(on floor: HomeFloor) -> Int {
+        HomeCatalog.level(snapshot?.home.roomLevel ?? 1)?.capacity(on: floor, rules: homeLayoutRules) ?? 0
+    }
+
     /// Current-floor drafts override only their floor; items on the other floor stay placed.
     func furnitureFloor(for itemID: String) -> HomeFloor? {
         if sceneSnapshot?.home.furniture.contains(where: { $0.itemID == itemID }) == true {
@@ -16,7 +30,8 @@ extension GameStore {
     func availableFurnitureSlots(on floor: HomeFloor) -> Int {
         guard let snapshot, let room = HomeCatalog.level(snapshot.home.roomLevel) else { return 0 }
         let placed = floor == visibleHomeFloor ? placedFurnitureCount : snapshot.home.placements(on: floor).count
-        return max(0, min(room.capacity(on: floor) - placed, room.capacity - totalPlacedFurnitureCount))
+        return max(0, min(room.capacity(on: floor, rules: homeLayoutRules) - placed,
+                          totalFurnitureCapacity(for: room) - totalPlacedFurnitureCount))
     }
 
     var availableFurnitureFloor: HomeFloor? {

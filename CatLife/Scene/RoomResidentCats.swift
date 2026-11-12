@@ -150,7 +150,7 @@ final class RoomResidentCats {
                 actor.reducedMotion = reducedMotion
                 actor.cancelAndSettle(at: points[index])
                 actor.isHidden = false
-                if actor.parent == nil { scene.addChild(actor) }
+                if actor.parent == nil { ((scene as? RoomScene)?.simulationRoot ?? scene).addChild(actor) }
                 actor.setIdleEnabled(true)
                 self.actors[state.id] = actor
             }

@@ -65,7 +65,7 @@ struct HomeUpgradeView: View {
         } message: {
             if let request {
                 Text(GameStrings.format("homeUpgrade.confirmMessage", request.upgradeCost, request.level,
-                                        area(request), request.capacity))
+                                        area(request), store.totalFurnitureCapacity(for: request)))
             }
         }
     }
@@ -88,7 +88,7 @@ struct HomeUpgradeView: View {
             Text(GameStrings.format("homeUpgrade.dimensions", number(home.worldScale)))
                 .font(.footnote).foregroundStyle(RoomTheme.secondary)
             if home.floors.count > 1 {
-                Label(GameStrings.format("homeUpgrade.floorCapacity", home.floorCapacity), systemImage: "stairs")
+                Label(GameStrings.format("homeUpgrade.floorCapacity", store.floorFurnitureCapacity(for: home)), systemImage: "stairs")
                     .font(.subheadline.weight(.semibold)).foregroundStyle(RoomTheme.darkMint)
             }
             if home.level >= RoomResidentCats.unlockLevel {
@@ -96,9 +96,9 @@ struct HomeUpgradeView: View {
                     .font(.footnote.weight(.semibold)).foregroundStyle(RoomTheme.darkMint)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Label(GameStrings.format("homeUpgrade.capacity", home.capacity), systemImage: "sofa.fill")
+            Label(GameStrings.format("homeUpgrade.capacity", store.totalFurnitureCapacity(for: home)), systemImage: "sofa.fill")
                 .font(.subheadline).accessibilityIdentifier("homeUpgrade\(prefix)Capacity")
-                .accessibilityValue("\(home.capacity)")
+                .accessibilityValue("\(store.totalFurnitureCapacity(for: home))")
         }
         .padding(20).frame(maxWidth: .infinity, alignment: .leading)
         .background(prefix == "Current" ? RoomTheme.paper : RoomTheme.paleMint.opacity(0.65),

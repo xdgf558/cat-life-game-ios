@@ -12,6 +12,7 @@ struct MacBuildView: View {
     var onDone: () -> Void
     var onRestRequest: ((String) -> Void)?
     var onContextAction: ((MacRoomContextAction) -> Void)?
+    var onFixedStructure: ((MacRoomStructure) -> Void)?
     @State private var query = ""
     @State private var filter = "all"
     @State private var confirmsCancel = false
@@ -118,22 +119,25 @@ struct MacBuildView: View {
             .accessibilityIdentifier("macBuildItem_" + item.id)
     }
     private var stage: some View {
-        VStack(spacing: 8) {
-            toolbar.padding(.horizontal, 12).padding(.top, 12)
-            MacRoomCanvas(store: store, scene: scene, isActive: isActive && !confirmsCancel && !store.isSavingLayout,
-                frameLimit: preferences.frameLimit, wheelReversed: preferences.wheelReversed,
-                contextMenus: preferences.contextMenus, hoverHints: preferences.hoverHints,
-                onRestRequest: onRestRequest, onContextAction: onContextAction)
-                .id(store.saveSceneGeneration.uuidString + ":build:" + store.visibleHomeFloor.rawValue)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-            HStack(spacing: 10) {
-                Text(GameStrings.format("mac.build.stageHint", preferences.binding(for: .rotateRight).label, preferences.binding(for: .putAway).label)).font(.caption).foregroundStyle(RoomTheme.secondary)
-                    .lineLimit(2)
-                Spacer(minLength: 4)
-                viewControls
-            }.padding(.horizontal, 14).padding(.bottom, 14)
-        }.background(RoomTheme.paleMint.opacity(0.35), in: RoundedRectangle(cornerRadius: 26))
-            .overlay(RoundedRectangle(cornerRadius: 26).stroke(.white, lineWidth: 3))
+        MacRoomCanvas(store: store, scene: scene, isActive: isActive && !confirmsCancel && !store.isSavingLayout,
+            frameLimit: preferences.frameLimit, wheelReversed: preferences.wheelReversed,
+            contextMenus: preferences.contextMenus, hoverHints: preferences.hoverHints,
+            isDaylight: !preferences.followDaylight || !MacTitleMetricsV2.isNight(at: store.now),
+            onRestRequest: onRestRequest, onContextAction: onContextAction, onFixedStructure: onFixedStructure)
+            .id(store.saveSceneGeneration.uuidString + ":build:" + store.visibleHomeFloor.rawValue)
+            .overlay(alignment: .top) { toolbar.padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)).padding(12) }
+            .overlay(alignment: .bottom) {
+                HStack(spacing: 10) {
+                    Text(GameStrings.format("mac.build.stageHint", preferences.binding(for: .rotateRight).label, preferences.binding(for: .putAway).label))
+                        .font(.caption).foregroundStyle(RoomTheme.secondary).lineLimit(2)
+                    Spacer(minLength: 4)
+                    viewControls
+                }.padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)).padding(12)
+            }
+            .background(RoomTheme.paleMint.opacity(0.35), in: RoundedRectangle(cornerRadius: 26))
+            .overlay(RoundedRectangle(cornerRadius: 26).stroke(.white, lineWidth: 3).allowsHitTesting(false))
+            .clipShape(RoundedRectangle(cornerRadius: 26))
+            .accessibilityElement(children: .contain)
     }
     private var toolbar: some View {
         ViewThatFits(in: .horizontal) {

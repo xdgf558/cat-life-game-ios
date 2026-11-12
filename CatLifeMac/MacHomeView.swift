@@ -13,6 +13,7 @@ struct MacHomeView: View {
     let onCats: () -> Void
     let onRest: (String) -> Void
     let onContext: (MacRoomContextAction) -> Void
+    let onFixedStructure: (MacRoomStructure) -> Void
     @State private var need = CatNeedPresentation()
     @State private var cameraRevision = 0
     @State private var recent: [String] = []
@@ -43,23 +44,25 @@ struct MacHomeView: View {
         .onChange(of: store.toast) { _, message in if let message { recent.append(message); if recent.count > 3 { recent.removeFirst() } } }
     }
     private var stage: some View {
-        VStack(spacing: 0) {
-            stageHeader
-            GeometryReader { geometry in
-                ZStack {
-                    MacRoomCanvas(store: store, scene: scene, isActive: isActive, frameLimit: preferences.frameLimit,
-                                  wheelReversed: preferences.wheelReversed, contextMenus: preferences.contextMenus,
-                                  hoverHints: preferences.hoverHints, needPresentation: need,
-                                  onRestRequest: onRest, onContextAction: onContext, onViewChanged: { cameraRevision += 1 })
-                    CatNeedBubble(reducedMotion: preferences.reduceMotion, store: store, presentation: need, canvasSize: geometry.size,
-                                  isActive: isActive, canAct: { !store.isBusy }, bottomInset: 12)
-                }
-            }.clipShape(RoundedRectangle(cornerRadius: 22)).padding(.horizontal, 8)
-            stageFooter.padding(12)
-        }.background(RoomTheme.paper, in: RoundedRectangle(cornerRadius: 28))
-            .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white, lineWidth: 3))
-            .overlay { if preferences.followDaylight && (Calendar.current.component(.hour, from: store.now) >= 22 || Calendar.current.component(.hour, from: store.now) < 7) { Color.indigo.opacity(0.05).allowsHitTesting(false) } }
-            .clipShape(RoundedRectangle(cornerRadius: 28))
+        GeometryReader { geometry in
+            ZStack {
+                MacRoomCanvas(store: store, scene: scene, isActive: isActive, frameLimit: preferences.frameLimit,
+                              wheelReversed: preferences.wheelReversed, contextMenus: preferences.contextMenus,
+                              hoverHints: preferences.hoverHints,
+                              isDaylight: !preferences.followDaylight || !MacTitleMetricsV2.isNight(at: store.now),
+                              needPresentation: need,
+                              onRestRequest: onRest, onContextAction: onContext,
+                              onViewChanged: { cameraRevision += 1 }, onFixedStructure: onFixedStructure)
+                CatNeedBubble(reducedMotion: preferences.reduceMotion, store: store, presentation: need, canvasSize: geometry.size,
+                              isActive: isActive, canAct: { !store.isBusy }, bottomInset: 96)
+            }
+            .overlay(alignment: .top) { stageHeader.padding(16) }
+            .overlay(alignment: .bottom) { stageFooter.padding(16) }
+        }
+        .background(RoomTheme.paper, in: RoundedRectangle(cornerRadius: 28))
+        .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white, lineWidth: 3).allowsHitTesting(false))
+        .clipShape(RoundedRectangle(cornerRadius: 28))
+        .accessibilityElement(children: .contain)
     }
     private var stageHeader: some View {
         HStack(spacing: 10) {
@@ -88,13 +91,13 @@ struct MacHomeView: View {
                 }
             }.buttonStyle(MacCompactButtonStyle()).disabled(store.isBusy)
                 .accessibilityIdentifier("macDecorate")
-        }.padding(16)
+        }
     }
 
     private var stageFooter: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) { angleControls; Spacer(minLength: 6); zoomControls }
-            VStack(spacing: 8) { angleControls; zoomControls }
+            HStack(spacing: 12) { angleControls.padding(6).background(.regularMaterial, in: Capsule()); Spacer(minLength: 6); zoomControls }
+            VStack(spacing: 8) { angleControls.padding(6).background(.regularMaterial, in: Capsule()); zoomControls }
         }
     }
 

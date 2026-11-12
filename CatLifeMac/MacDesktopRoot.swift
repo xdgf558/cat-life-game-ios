@@ -17,6 +17,7 @@ struct MacDesktopRoot: View {
     @State private var keyboard: MacKeyboardRouter?
     @State private var hadSave = false
     @State private var quitting = false
+    @State private var creatingHome = false
     @State private var appIsActive = NSApp.isActive
     @State private var workNotifications = MacWorkNotificationTracker()
     @State private var catUrgencies = MacCatUrgencyTracker()
@@ -34,8 +35,10 @@ struct MacDesktopRoot: View {
             RoomTheme.cream.ignoresSafeArea()
             if titleVisible {
                 MacTitleView(store: store, scene: scene, preferences: preferences, hadSave: hadSave, isActive: active,
+                             lastSeenAt: store.hasEnteredHome ? store.snapshot?.meta.lastSyncAt : store.macPreviousSaveAt,
                              onContinue: enterHome, onNew: newGame, onLoad: { auxiliary = .saves },
                              onSettings: { titleVisible = false; page = .settings }, onQuit: { NSApp.terminate(nil) })
+                    .disabled(creatingHome)
             } else {
                 HStack(spacing: 0) {
                     MacNavigationRail(page: page, preferences: preferences, isWorking: store.snapshot?.player.activeWork != nil, select: select, help: { showsHelp = true })
@@ -122,7 +125,7 @@ struct MacDesktopRoot: View {
         .onChange(of: store.isShowingTownBoard) { _, shown in if shown { auxiliary = .board } }
         .onChange(of: store.isShowingSettings) { _, shown in if shown { select(.settings); store.isShowingSettings = false } }
         .onChange(of: store.inspectedCatID) { _, id in if id != nil { auxiliary = .catProfile } }
-        .onChange(of: store.saveSceneGeneration) { _, _ in scene = canCreateRoomScene ? makeScene() : nil; auxiliary = nil }
+        .onChange(of: store.saveSceneGeneration) { _, _ in hadSave = true; scene = canCreateRoomScene ? makeScene() : nil; auxiliary = nil }
         .onChange(of: store.visibleHomeFloor) { _, _ in scene = canCreateRoomScene ? makeScene() : nil }
         .onChange(of: store.isLoading) { _, loading in
             if loading { scene = nil }
@@ -165,7 +168,7 @@ struct MacDesktopRoot: View {
     @ViewBuilder private var pageContent: some View {
         if store.isDecorating {
             if let scene {
-                MacBuildView(store: store, scene: scene, preferences: preferences, isActive: active, onDone: {}, onRestRequest: { restRequest = $0 }, onContextAction: context)
+                MacBuildView(store: store, scene: scene, preferences: preferences, isActive: active, onDone: {}, onRestRequest: { restRequest = $0 }, onContextAction: context, onFixedStructure: fixedStructure)
             } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
         } else {
             switch page {
@@ -173,7 +176,7 @@ struct MacDesktopRoot: View {
                 if let scene {
                     MacHomeView(store: store, scene: scene, preferences: preferences, isActive: active,
                         onTasks: { store.activeSheet = .tasks }, onInventory: { store.activeSheet = .inventory },
-                        onCats: { select(.cats) }, onRest: { restRequest = $0 }, onContext: context)
+                        onCats: { select(.cats) }, onRest: { restRequest = $0 }, onContext: context, onFixedStructure: fixedStructure)
                 } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
             case .work: MacWorkView(store: store, onHome: { select(.home) }, preferences: preferences)
             case .shop: MacShopView(store: store, onHome: { page = .home }, preferences: preferences)
@@ -217,15 +220,19 @@ struct MacDesktopRoot: View {
     }
     private var canCreateRoomScene: Bool { store.snapshot != nil && !store.isLoading && !store.loadFailed }
     private func makeScene() -> RoomScene { RoomScene(size: CGSize(width: 900, height: 720)) }
-    private func enterHome() { guard store.snapshot != nil, !store.isLoading else { return }; store.enterHome(); hadSave = true; store.onboarding.isPresented = false; titleVisible = false; page = .home }
+    private func enterHome() { guard store.snapshot != nil, !store.isLoading else { return }; scene?.prepareDesktopEntry(); store.enterHome(); hadSave = true; store.onboarding.isPresented = false; titleVisible = false; page = .home }
     private func newGame() {
-        guard !store.isBusy, !store.isLoading else { return }
+        guard !store.isBusy, !store.isLoading, !creatingHome else { return }
         if !hadSave { enterHome(); return }
         guard confirm("mac.new.title", body: "mac.new.body") else { return }
+        creatingHome = true
         Task {
+            defer { creatingHome = false }
             do {
                 let now = Date()
-                let data = try NativeSaveTransfer.encode(snapshot: .fresh(now: now), exportedAt: now)
+                let fresh = try await MacRoomSaveRepair.prepare(.fresh(now: now), now: now, isNewHome: true)
+                guard !quitting else { return }
+                let data = try NativeSaveTransfer.encode(snapshot: fresh, exportedAt: now)
                 let archive = try NativeSaveTransfer.decode(data)
                 try await store.importSaveArchive(archive); hadSave = true; enterHome()
             } catch { store.showNotice(GameStrings.text("saveTransfer.writeFailed")) }
@@ -284,6 +291,23 @@ struct MacDesktopRoot: View {
         default: break
         }
     }
+    private func fixedStructure(_ structure: MacRoomStructure) {
+        guard !store.isBusy, !store.isSavingLayout, !store.saveTransferInProgress else { return }
+        if store.isDecorating {
+            store.showNotice(GameStrings.text(structure == .door ? "mac.room.doorFixed" : "mac.room.stairsFixed"))
+            return
+        }
+        switch structure {
+        case .door: select(.town)
+        case .stairs:
+            guard (store.snapshot?.home.roomLevel ?? 1) >= 6 else {
+                store.showNotice(GameStrings.text("mac.room.stairsLocked"))
+                store.activeSheet = .upgrade
+                return
+            }
+            Task { _ = await store.changeHomeFloor(to: store.visibleHomeFloor == .ground ? .upper : .ground) }
+        }
+    }
     private func context(_ action: MacRoomContextAction) {
         switch action {
         case .companion(let id): Task { _ = await store.selectCompanion(catID: id) }
@@ -307,6 +331,7 @@ struct MacDesktopRoot: View {
         }
     }
     private func handle(_ command: MacCommand) -> Bool {
+        guard !creatingHome else { return true }
         if command == .settings { select(.settings); return true }
         if command == .fullscreen { windowController?.toggleFullscreen(); return true }
         if command == .help { showsHelp.toggle(); return true }
@@ -318,7 +343,7 @@ struct MacDesktopRoot: View {
             return true
         }
         if titleVisible, command == .confirm, auxiliary == nil, !store.isLoading, !store.loadFailed {
-            if hadSave { enterHome() } else { newGame() }
+            NotificationCenter.default.post(name: .macTitleConfirm, object: nil)
             return true
         }
         guard !titleVisible, auxiliary == nil, !showsHelp, !store.isShowingPlayTogether, !store.showsPlayChoices, store.supplyPicker == nil else { return false }

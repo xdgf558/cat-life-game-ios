@@ -14,6 +14,11 @@ final class RoomShellArtwork: SKNode {
     private(set) var windowGroundAnchor: CGPoint?
     private var shellBounds = CGRect.null
     private let frontArtwork = RoomFrontArtwork()
+    #if os(macOS)
+    let desktopArtwork = MacRoomShellArtwork()
+    var desktopDaylight = true
+    var desktopLevel = 1
+    #endif
     private lazy var woodTexture = UIImage(named: "room-floor-wood").map { SKTexture(image: $0) }
     private lazy var plasterTexture = UIImage(named: "room-wall-plaster").map { SKTexture(image: $0) }
     private lazy var windowTexture = UIImage(named: "room-window-arched").map { SKTexture(image: $0) }
@@ -39,6 +44,15 @@ final class RoomShellArtwork: SKNode {
         guard floorPolygon.count >= 3, worldSize.width.isFinite, worldSize.height.isFinite,
               worldSize.width > 0, worldSize.height > 0,
               floorPolygon.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else { return }
+        #if os(macOS)
+        if let model = projection.macRoom {
+            desktopArtwork.configure(model, floor: homeFloor, level: desktopLevel, isDaylight: desktopDaylight)
+            addChild(desktopArtwork)
+            contentBounds = desktopArtwork.contentBounds
+            windowGroundAnchor = model.logicalPoint(cell: CGPoint(x: 2.2, y: 7))
+            return
+        }
+        #endif
         if projection.frontFloor != nil {
             frontArtwork.configure(projection: projection, floor: homeFloor)
             addChild(frontArtwork)

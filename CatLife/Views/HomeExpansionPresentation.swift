@@ -4,6 +4,12 @@ import CatGameCore
 struct HomeUpgradeCelebration: Identifiable, Equatable {
     let id = UUID()
     let level: Int
+    let rules: HomeLayoutRules
+
+    init(level: Int, rules: HomeLayoutRules = .standard) {
+        self.level = level
+        self.rules = rules
+    }
 }
 
 @MainActor
@@ -75,7 +81,7 @@ struct HomeUpgradeCelebrationView: View {
                             .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(RoomTheme.friendshipBorder, lineWidth: 2))
                     }
                     Text(GameStrings.format(level.floors.count == 2 ? "homeUpgrade.floorCapacity" : "homeUpgrade.capacity",
-                                            level.floors.count == 2 ? level.floorCapacity : level.capacity))
+                                            level.floors.count == 2 ? level.floorCapacity(using: celebration.rules) : level.capacity(using: celebration.rules)))
                         .font(.subheadline.weight(.heavy)).foregroundStyle(RoomTheme.darkMint).multilineTextAlignment(.center)
                 }
                 Button(action: dismiss) {

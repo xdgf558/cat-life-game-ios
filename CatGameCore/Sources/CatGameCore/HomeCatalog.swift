@@ -4,6 +4,13 @@ public enum HomeFloor: String, Codable, CaseIterable, Hashable, Sendable {
     case ground, upper
 }
 
+/// Runtime layout limits are chosen by the host app, never stored in a backup.
+public enum HomeLayoutRules: Equatable, Sendable {
+    case standard, macDesktop
+
+    var extraSlotsPerFloor: Int { self == .macDesktop ? 7 : 0 }
+}
+
 public struct HomeLevel: Identifiable, Equatable, Sendable {
     public let level: Int
     /// Total furniture capacity across all unlocked floors. Bowls do not count.
@@ -16,7 +23,11 @@ public struct HomeLevel: Identifiable, Equatable, Sendable {
     public var floors: [HomeFloor] { level >= 6 ? [.ground, .upper] : [.ground] }
     public var floorCapacity: Int { capacity / floors.count }
 
-    public func capacity(on floor: HomeFloor) -> Int { floors.contains(floor) ? floorCapacity : 0 }
+    public func floorCapacity(using rules: HomeLayoutRules) -> Int { floorCapacity + rules.extraSlotsPerFloor }
+    public func capacity(using rules: HomeLayoutRules) -> Int { floorCapacity(using: rules) * floors.count }
+    public func capacity(on floor: HomeFloor, rules: HomeLayoutRules = .standard) -> Int {
+        floors.contains(floor) ? floorCapacity(using: rules) : 0
+    }
     public func worldScale(on floor: HomeFloor) -> Double? { floors.contains(floor) ? worldScale : nil }
 }
 
@@ -42,7 +53,7 @@ public enum HomeCatalog {
     /// Preserve pre-upgrade saves that already contain more items than today's
     /// limit. They can still be moved or put away; only new placements are gated.
     static func allowsLayout(_ proposed: [FurniturePlacement], replacing previous: [FurniturePlacement],
-                             roomLevel: Int) -> Bool {
+                             roomLevel: Int, rules: HomeLayoutRules = .standard) -> Bool {
         guard let room = level(roomLevel) else { return false }
         guard proposed.allSatisfy({ room.floors.contains($0.floor) }) else { return false }
         func allows(_ proposed: [FurniturePlacement], _ previous: [FurniturePlacement], limit: Int) -> Bool {
@@ -50,10 +61,10 @@ public enum HomeCatalog {
             let previousIDs = Set(previous.map(\.itemID))
             return proposed.allSatisfy { previousIDs.contains($0.itemID) }
         }
-        guard allows(proposed, previous, limit: room.capacity) else { return false }
+        guard allows(proposed, previous, limit: room.capacity(using: rules)) else { return false }
         return room.floors.allSatisfy { floor in
             allows(proposed.filter { $0.floor == floor }, previous.filter { $0.floor == floor },
-                   limit: room.capacity(on: floor))
+                   limit: room.capacity(on: floor, rules: rules))
         }
     }
 }
