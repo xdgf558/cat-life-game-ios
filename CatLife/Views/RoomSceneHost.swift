@@ -157,7 +157,7 @@ struct RoomSceneHost: View {
                         }
                     }.toolbar {
                         if accessibleGrowthID != nil {
-                            ToolbarItem(placement: .topBarLeading) {
+                            ToolbarItem(placement: .navigationBarLeading) {
                                 Button(GameStrings.text("common.back")) { accessibleGrowthID = nil }.disabled(isSavingGrowth)
                             }
                         }
@@ -833,6 +833,7 @@ struct RoomSceneHost: View {
 
 /// Present the scene explicitly so scene attachment and resume ordering are
 /// consistent across supported OS versions, including a cold launch from inactive.
+#if os(iOS)
 @MainActor
 private struct NativeRoomCanvas: UIViewRepresentable {
     let scene: RoomScene
@@ -911,6 +912,40 @@ private struct NativeRoomCanvas: UIViewRepresentable {
         scene.isPaused = !isActive
     }
 }
+
+#elseif os(macOS)
+@MainActor
+private struct NativeRoomCanvas: NSViewRepresentable {
+    let scene: RoomScene
+    let isActive: Bool
+    let isInteractive: Bool
+    let canvasSize: CGSize
+
+    func makeNSView(context: Context) -> MacRoomSKView {
+        let view = MacRoomSKView()
+        view.requestedFrameLimit = 30
+        view.ignoresSiblingOrder = true
+        view.allowsTransparency = true
+        view.setAccessibilityElement(false)
+        configure(view)
+        return view
+    }
+    func updateNSView(_ view: MacRoomSKView, context: Context) { configure(view) }
+    static func dismantleNSView(_ view: MacRoomSKView, coordinator: ()) {
+        view.inputEnabled = false
+        view.roomScene?.cancelCameraInteraction()
+        view.isPaused = true
+    }
+    private func configure(_ view: MacRoomSKView) {
+        view.inputEnabled = isActive && isInteractive
+        if canvasSize.width > 0 && canvasSize.height > 0 && scene.size != canvasSize { scene.size = canvasSize }
+        if view.scene !== scene { view.presentScene(scene) }
+        scene.setPresentationActive(isActive)
+        view.isPaused = !isActive; scene.isPaused = !isActive
+    }
+}
+
+#endif
 
 /// VoiceOver activation matches the physical cat tap without asking for another rest.
 @MainActor

@@ -1,5 +1,9 @@
 import SpriteKit
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 import CatGameCore
 
 /// Owns room nodes, layering and decoration visuals. It never plans routes or
@@ -242,7 +246,13 @@ final class RoomSceneArtwork {
         }
     }
     func showCareParticles(cat: CatActor, reducedMotion: Bool) {
-        guard !reducedMotion, let image = UIImage(systemName: "sparkles")?.withTintColor(.white, renderingMode: .alwaysOriginal) else { return }
+        guard !reducedMotion else { return }
+        #if os(iOS)
+        guard let image = UIImage(systemName: "sparkles")?.withTintColor(.white, renderingMode: .alwaysOriginal) else { return }
+        #else
+        guard let image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(paletteColors: [.white])) else { return }
+        #endif
         for index in 0..<3 {
             let particle = SKSpriteNode(texture: SKTexture(image: image))
             particle.name = "care-particle"

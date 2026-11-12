@@ -216,7 +216,7 @@ struct PlayerProfileView: View {
     }
 
     private var wardrobePage: some View {
-        ScrollView {
+        ScrollView(.vertical, showsIndicators: true) {
             wardrobe.padding(16).frame(maxWidth: 560).frame(maxWidth: .infinity)
         }
         .accessibilityIdentifier("profileWardrobeScroll").background(RoomTheme.cream)

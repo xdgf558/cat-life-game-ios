@@ -104,6 +104,7 @@ public enum ActionSuccess: String, Equatable, Sendable {
     case equipmentPurchased = "shop.equipmentPurchased"
     case furniturePurchased = "shop.furniturePurchased"
     case homeUpgraded = "home.upgraded"
+    case workCancelled = "mac.work.cancelled"
     case workStarted = "work.started"
     case workFinished = "work.finished"
     case layoutSaved = "room.layoutSaved"
@@ -118,7 +119,7 @@ public enum ActionSuccess: String, Equatable, Sendable {
         case .companionSelected, .avatarSaved, .equipped, .unequipped, .starterEquipped,
              .taskClaimed, .catTreated, .neighborVisited, .neighborChatted, .neighborGifted,
               .townEventCompleted, .townMilestoneClaimed: return .none
-        case .habitPlayOpened, .habitPlayUpdated, .habitPlayEnded, .habitCornerSelected: return .none
+        case .habitPlayOpened, .habitPlayUpdated, .habitPlayEnded, .habitCornerSelected, .workCancelled: return .none
         case .sleepStarted: return .sleepStarted
         case .sleepEnded: return .sleepEnded
         case .catRestStarted: return .catRestStarted

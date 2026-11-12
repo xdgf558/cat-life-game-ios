@@ -73,6 +73,7 @@ enum GameActionNotice {
                 return GameStrings.text(success.rawValue)
             case .habitPlayOpened, .habitPlayUpdated, .habitPlayEnded, .habitCornerSelected:
                 return GameStrings.text(success.rawValue)
+            case .workCancelled: return GameStrings.text(success.rawValue)
             case .layoutSaved: return GameStrings.text("layout.saved")
             }
         }

@@ -281,6 +281,7 @@
     "CatLife/Audio/sfx-treat-start.caf",
     "CatLife/Audio/sfx-wake.caf",
     "CatLife/Audio/sfx-work-complete.caf",
-    "CatLife/Audio/sfx-work-start.caf"
+    "CatLife/Audio/sfx-work-start.caf",
+    "CatLifeMac/Assets.xcassets/MacAppIcon.appiconset/MacAppIcon.png"
   ]
 }

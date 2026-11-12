@@ -1,11 +1,21 @@
 import SpriteKit
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 import CatGameCore
 
 /// Rendering and hit testing only. Game rules and saves stay in CatGameCore.
 @MainActor
 final class RoomScene: SKScene {
     var onSound: ((GameSoundEffect) -> Void)?
+    var preferredFrameLimit: Int?
+    #if os(macOS)
+    var macCanvasOwnerID: UUID?
+    var desktopViewRequested = false
+    var hasPreparedDesktopView = false
+    #endif
     // Keep the initial room textures resident between the welcome screen and
     // scene creation. The progress bar completes only after SpriteKit is ready.
     private static var welcomeTextures: [SKTexture]?
@@ -18,20 +28,26 @@ final class RoomScene: SKScene {
 #if DEBUG
             welcomePreloadPassCount += 1
 #endif
+            let appearances = CatAppearance.allCases
             let names = ["room-empty", "room-floor-wood", "room-wall-plaster", "room-window-arched", "bowl-empty", "bowl-full", "icon-play"]
-                + CatAppearance.allCases.flatMap { appearance in
+                + appearances.flatMap { appearance in
                     (["cat-idle"] + CatClip.allCases.map(\.rawValue)).map {
                         CatArtwork.asset($0, appearance: appearance)
                     }
                 }
                 + FurnitureKind.allCases.map { FurnitureCatalog.metadata(for: $0).assetName }
             let textures = Set(names).sorted().map { SKTexture(imageNamed: $0) }
+            #if os(macOS)
+            // Prepare image data before the first native SKView; GPU preloading can wait indefinitely for its render context.
+            for name in Set(names).sorted() { _ = NSImage(named: name)?.cgImage }
+            #else
             // Serial requests avoid SpriteKit's cold-load setup racing across worker queues.
             for texture in textures {
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     SKTexture.preload([texture]) { continuation.resume() }
                 }
             }
+            #endif
             await CatSpriteLibrary.preload()
             welcomeTextures = textures
         }
@@ -54,14 +70,18 @@ final class RoomScene: SKScene {
     var onCatTapped: (() -> Void)?
     var onResidentTapped: ((String) -> Void)?
     var onBackgroundTapped: (() -> Void)?
-    var onVisibleResidentsChanged: ((Set<String>) -> Void)?
+    var onVisibleResidentsChanged: ((Set<String>) -> Void)? {
+        didSet { lastVisibleResidents = nil }
+    }
     private var lastVisibleResidents: Set<String>?
     var inspectedResidentID: String?
     var onInspectedResidentFrameChanged: ((CGRect?) -> Void)?
     private var inspectionFrameSampler = CatVisualFrameSampler()
     var homeFloor: HomeFloor = .ground
     let residents = RoomResidentCats()
-    var onFloorTravelAvailabilityChanged: ((Bool) -> Void)?
+    var onFloorTravelAvailabilityChanged: ((Bool) -> Void)? {
+        didSet { lastFloorTravelAvailability = nil }
+    }
     private var lastFloorTravelAvailability: Bool?
     var onCatNeedAnchorChanged: ((CGPoint?) -> Void)? {
         didSet { needAnchorSampler = CatNeedAnchorSampler(); updateThought() }
@@ -121,6 +141,7 @@ final class RoomScene: SKScene {
     private var restDeadline: Date?
     private var restDeadlineTask: Task<Void, Never>?
     var presentationActive = true
+    private(set) var readOnlyPreviewEnabled = false
     private var restPlanningTask: Task<RoomFurnitureRest?, Never>?
     private var restExiting = false
     var pendingRestID: String?
@@ -137,7 +158,9 @@ final class RoomScene: SKScene {
     private var lastRoomViewTick: TimeInterval?
     private var followsPresentedCat = false
     var dragScreenPoint: CGPoint?
+    #if os(iOS)
     weak var sceneTouch: UITouch?
+    #endif
     var blockedTouchSequence = false
     private var restFront: SKSpriteNode { artwork.restFront }
     var onBowlTapped: (() -> Void)?
@@ -176,6 +199,7 @@ final class RoomScene: SKScene {
     private var thought: SKNode { artwork.thought }
     private var latest: GameSnapshot?
     private var renderedCatID: String? = CatCatalog.initialCatID
+    var displayedCatID: String? { renderedCatID }
     var editing = false
     var dragging = false
     var touchOrigin: CGPoint?
@@ -447,7 +471,7 @@ final class RoomScene: SKScene {
         // panel may open immediately, but no furniture can move or be stored.
         if activeRest != nil {
             self.editing = editing
-            view?.preferredFramesPerSecond = editing ? 60 : 30
+            view?.preferredFramesPerSecond = preferredFrameLimit ?? (editing ? 60 : 30)
             if editing || snapshot.home.roomLevel != renderedRoomLevel {
                 pendingRestID = nil
                 setPlacementPending(true)
@@ -470,7 +494,7 @@ final class RoomScene: SKScene {
                 lastRequestedBowlPoint = nil
             }
             cancelPlacementPreview()
-            view?.preferredFramesPerSecond = editing ? 60 : 30
+            view?.preferredFramesPerSecond = preferredFrameLimit ?? (editing ? 60 : 30)
             cancelPresentation(at: cat.position)
             setPhase(editing ? "editing" : "idle")
             placementPrepared = false
@@ -743,6 +767,14 @@ final class RoomScene: SKScene {
         }
     }
 
+    /// Title previews may finish pure layout without enabling care, idle walks or rest callbacks.
+    func setReadOnlyPreviewEnabled(_ enabled: Bool) {
+        guard readOnlyPreviewEnabled != enabled else { return }
+        readOnlyPreviewEnabled = enabled
+        if enabled { startBowlPlanning() }
+        else if !presentationActive { cancelBowlPlanning(keepingRequest: true) }
+    }
+
     /// Resume the existing pose without replaying its full sleep after a pause.
     /// Called before unpausing SKView and from onAppear for a retained scene.
     func setPresentationActive(_ active: Bool) {
@@ -755,7 +787,8 @@ final class RoomScene: SKScene {
             visualFrameSampler = CatVisualFrameSampler()
             arrangementFrameSampler = CatVisualFrameSampler()
             cancelCameraInteraction()
-            cancelBowlPlanning(keepingRequest: true)
+            if readOnlyPreviewEnabled { startBowlPlanning() }
+            else { cancelBowlPlanning(keepingRequest: true) }
             if residents.isStrolling && !arrangementYielding68 {
                 residents.invalidate()
                 cat.cancelAndSettle(at: cat.position)
@@ -1376,7 +1409,7 @@ final class RoomScene: SKScene {
     }
 
     private func startBowlPlanning() {
-        guard presentationActive, size.width > 0, size.height > 0,
+        guard presentationActive || readOnlyPreviewEnabled, size.width > 0, size.height > 0,
               !layoutPlanning.isRunning, bowlPlanningRequest != nil else { return }
 #if DEBUG
         let args = ProcessInfo.processInfo.arguments
@@ -1386,7 +1419,7 @@ final class RoomScene: SKScene {
         diagnostics.bowlPlanning = true
 #endif
         layoutPlanning.start { [weak self] proposal, result in
-            guard let self, self.presentationActive else { return }
+            guard let self, self.presentationActive || self.readOnlyPreviewEnabled else { return }
             let initialSnapshot = !self.hasCommittedSnapshotLayout && proposal.snapshotCatID != nil
                 && proposal.snapshotCatID == self.latest?.activeCatID
             let useOpening = initialSnapshot && !self.editing && self.suspendedCareKind == nil
@@ -1422,6 +1455,10 @@ final class RoomScene: SKScene {
             self.updateBowlLayers()
             self.updateFurnitureLayers()
             guard self.bowlPlanningRequest == nil else { return }
+#if os(macOS)
+            if self.desktopViewRequested { self.prepareDesktopView() }
+#endif
+            guard self.presentationActive else { self.resumeIdle(); return }
             if let kind = self.suspendedCareKind, !self.editing {
                 self.suspendedCareKind = nil
                 self.playFeedback(kind: kind)
@@ -1462,8 +1499,10 @@ final class RoomScene: SKScene {
     }
 #endif
 
+    #if os(iOS)
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { beginTouches(touches, with: event) }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { moveTouches(touches, with: event) }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { endTouches(touches, with: event) }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { cancelTouches(touches, with: event) }
+    #endif
 }

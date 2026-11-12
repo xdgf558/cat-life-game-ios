@@ -377,6 +377,16 @@ public enum GameEngine {
         return ActionOutcome(success: .workStarted)
     }
 
+    /// Ending early never refunds upfront costs or grants a partial wage.
+    public static func cancelWork(_ state: inout GameSnapshot, now: Date = Date()) -> ActionOutcome {
+        let synchronized = synchronize(&state, now: now)
+        guard synchronized.succeeded else { return synchronized }
+        // A shift that became due while confirmation was open is settled normally.
+        guard state.player.activeWork != nil else { return synchronized }
+        state.player.activeWork = nil
+        return ActionOutcome(success: .workCancelled)
+    }
+
     /// Applies whole elapsed intervals, preserving the fractional remainder.
     /// Repeating a sync at the same timestamp has no effect and pays no reward.
     public static func synchronize(_ state: inout GameSnapshot,

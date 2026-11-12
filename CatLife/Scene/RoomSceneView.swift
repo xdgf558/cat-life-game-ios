@@ -11,6 +11,24 @@ extension RoomScene {
             && bowlPlanningRequest == nil && !residents.isPreparing
     }
 
+    #if os(macOS)
+    /// Desktop starts with the complete isometric room; subsequent changes belong to the player.
+    @discardableResult
+    func prepareDesktopView() -> Bool {
+        desktopViewRequested = true
+        guard !hasPreparedDesktopView else { return true }
+        guard let floor, bowlPlanningRequest == nil else { return false }
+        hasPreparedDesktopView = true
+        cancelCameraInteraction()
+        suspendRoomFollowing()
+        roomPresentation.configure(world: worldGeometry.worldSize, viewport: size, floor: floor.polygon,
+                                   angle: .right, level: renderedRoomLevel, homeFloor: homeFloor)
+        roomPresentation.camera.fit()
+        updateRoomPresentation()
+        return true
+    }
+    #endif
+
     func setRoomViewUsableRect(_ rect: CGRect) {
         roomPresentation.setUsableRect(rect)
         updateRoomPresentation()

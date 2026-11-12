@@ -2,7 +2,9 @@ import AVFoundation
 import Foundation
 import Observation
 import CatGameCore
+#if os(iOS)
 import UIKit
+#endif
 
 /// One audio owner per app process. Preferences are committed by GameStore;
 /// players and audio-session state are intentionally never part of a game save.
@@ -51,6 +53,7 @@ final class GameAudioController: NSObject {
 
     override init() {
         super.init()
+        #if os(iOS)
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(receivedInterruption(_:)),
                            name: AVAudioSession.interruptionNotification, object: nil)
@@ -60,6 +63,7 @@ final class GameAudioController: NSObject {
                            name: AVAudioSession.mediaServicesWereResetNotification, object: nil)
         center.addObserver(self, selector: #selector(receivedSecondaryHint(_:)),
                            name: AVAudioSession.silenceSecondaryAudioHintNotification, object: nil)
+        #endif
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
@@ -107,6 +111,7 @@ final class GameAudioController: NSObject {
         guard !routePaused, !interrupted || recoveringInterruption else { return }
         let now = ProcessInfo.processInfo.systemUptime
         // A saved reward can also level up; adjacent cues share one physical feedback.
+        #if os(iOS)
         if settings.haptics, effect.successHaptic || effect.lightHaptic, now - lastHapticAt >= 0.12 {
             if effect.successHaptic { UINotificationFeedbackGenerator().notificationOccurred(.success) }
             else if effect.lightHaptic { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
@@ -115,6 +120,7 @@ final class GameAudioController: NSObject {
             hapticPlayCount += 1
             #endif
         }
+        #endif
         guard GameAudioPolicy.effectVolume(effect, settings: settings) > 0 else { return }
         if effect.isCatVoice {
             let pendingCat = pendingEffects.last(where: { $0.effect.isCatVoice })?.requestedAt ?? -100
@@ -218,7 +224,9 @@ final class GameAudioController: NSObject {
             return
         }
         // Ambient mixes with other audio; avoid layering our BGM over a podcast/music app.
+        #if os(iOS)
         guard !AVAudioSession.sharedInstance().secondaryAudioShouldBeSilencedHint else { pauseMusic(); return }
+        #endif
         if loadedTrack != currentTrack || music == nil {
             guard let next = makePlayer(currentTrack.fileName) else { pauseMusic(); return }
             next.numberOfLoops = -1
@@ -280,6 +288,9 @@ final class GameAudioController: NSObject {
         let generation = sessionGeneration
         // Synchronous AVAudioSession calls may wait for system audio services.
         // A serial worker keeps those waits off MainActor on every supported iOS.
+        #if os(macOS)
+        completeSessionActivation(succeeded: true, generation: generation)
+        #else
         sessionQueue.async { [weak self] in
             let succeeded: Bool
             do {
@@ -294,6 +305,7 @@ final class GameAudioController: NSObject {
                 self?.completeSessionActivation(succeeded: succeeded, generation: generation)
             }
         }
+        #endif
     }
 
     private func completeSessionActivation(succeeded: Bool, generation: UInt) {
@@ -340,9 +352,11 @@ final class GameAudioController: NSObject {
         recoveringInterruption = false
         pendingEffects.removeAll()
         guard needsDeactivation else { return }
+        #if os(iOS)
         sessionQueue.async {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
+        #endif
     }
 
     private func pauseMusic() {
@@ -361,6 +375,7 @@ final class GameAudioController: NSObject {
 
     private func pauseAll() { pauseMusic(); stopEffects() }
 
+    #if os(iOS)
     @objc nonisolated private func receivedInterruption(_ notification: Notification) {
         let type = (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? NSNumber)?.uintValue
         let options = (notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? NSNumber)?.uintValue ?? 0
@@ -413,4 +428,5 @@ final class GameAudioController: NSObject {
             self?.reconcileMusic()
         }
     }
+    #endif
 }

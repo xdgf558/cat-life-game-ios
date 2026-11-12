@@ -181,6 +181,11 @@ final class GameStore {
 
     init(directory: URL? = nil) {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        #if os(macOS)
+        let saveFolder = "CatLifeMac"
+        #else
+        let saveFolder = "CatLife"
+        #endif
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         let testing = arguments.contains("--ui-testing")
@@ -192,7 +197,7 @@ final class GameStore {
             reminderDefaults.removeObject(forKey: "catlife.home.upperHintSeen.v1")
             reminderDefaults.removeObject(forKey: "catlife.habits.studyMode.v1")
         }
-        let saveDirectory = directory ?? base.appendingPathComponent(testing ? "CatLife-UITests" : "CatLife", isDirectory: true)
+        let saveDirectory = directory ?? base.appendingPathComponent(testing ? saveFolder + "-UITests" : saveFolder, isDirectory: true)
         fixtures = GameStoreFixtures(arguments: arguments, allowsSeeding: directory == nil)
         if testing && arguments.contains("--reset-ui-test-save") && directory == nil {
             try? FileManager.default.removeItem(at: saveDirectory)
@@ -201,7 +206,7 @@ final class GameStore {
         }
         #else
         let reminderDefaults = UserDefaults.standard
-        let saveDirectory = directory ?? base.appendingPathComponent("CatLife", isDirectory: true)
+        let saveDirectory = directory ?? base.appendingPathComponent(saveFolder, isDirectory: true)
         #endif
         repository = FileSaveRepository(directory: saveDirectory)
         habitStudyLog = HabitStudyLog(directory: directory)
@@ -837,7 +842,9 @@ final class GameStore {
         timerTask?.cancel()
         timerTask = nil
         if snapshot != nil { synchronize(playsProgressFeedback: false) }
+        #if os(iOS)
         guard active else { return }
+        #endif
         timerTask = Task { [weak self] in
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(1)) } catch { break }
@@ -848,7 +855,7 @@ final class GameStore {
                 let restDue = self.snapshot?.cats.contains { $0.activeRest.map { $0.endsAt <= self.now } ?? false } ?? false
                 if workDue || restDue || self.now.timeIntervalSince(self.lastSyncCheck) >= 60 {
                     self.syncAudio()
-                    self.synchronize()
+                    self.synchronize(playsProgressFeedback: self.foreground)
                 }
             }
         }

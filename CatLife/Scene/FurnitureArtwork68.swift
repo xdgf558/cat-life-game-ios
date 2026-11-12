@@ -1,5 +1,9 @@
 import SpriteKit
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 import CatGameCore
 
 /// Cropped render textures keep one physical scale across all views and facings.

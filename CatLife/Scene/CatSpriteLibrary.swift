@@ -1,5 +1,9 @@
 import SpriteKit
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 import CatGameCore
 
 enum CatClip: String, CaseIterable, Sendable {

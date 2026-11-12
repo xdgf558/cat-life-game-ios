@@ -39,6 +39,8 @@ final class ArrangementEditor68 {
     var placementIssues: [String: ArrangementIssue68] = [:]
     var bowlSelected = false
     private(set) var history: [ArrangementDraft68] = []
+    private(set) var future: [ArrangementDraft68] = []
+    var canRedo: Bool { !future.isEmpty && pendingRequest == nil }
     @ObservationIgnored private var gestureStart: ArrangementDraft68?
     var canUndo: Bool { !history.isEmpty && pendingRequest == nil }
     var gridStep: Double { snapEnabled ? 0.5 : 0.1 }
@@ -50,16 +52,25 @@ final class ArrangementEditor68 {
     func end(_ draft: ArrangementDraft68) {
         defer { gestureStart = nil }
         guard let previous = gestureStart, !previous.hasSameLayout(as: draft) else { return }
+        future.removeAll()
         history.append(previous)
         if history.count > 20 { history.removeFirst(history.count - 20) }
     }
-    func undo() -> ArrangementDraft68? {
+    func undo(current: ArrangementDraft68? = nil) -> ArrangementDraft68? {
         guard canUndo else { return nil }
         gestureStart = nil
+        if let current { future.append(current) }
         return history.popLast()
+    }
+    func redo(current: ArrangementDraft68) -> ArrangementDraft68? {
+        guard canRedo, let next = future.popLast() else { return nil }
+        gestureStart = nil
+        history.append(current)
+        if history.count > 20 { history.removeFirst(history.count - 20) }
+        return next
     }
     func reset() {
         snapEnabled = true; filter = .floor; previewAngle = .front; pendingRequest = nil
-        placementIssues.removeAll(); bowlSelected = false; history.removeAll(); gestureStart = nil
+        placementIssues.removeAll(); bowlSelected = false; history.removeAll(); future.removeAll(); gestureStart = nil
     }
 }

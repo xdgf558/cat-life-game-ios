@@ -1,6 +1,10 @@
 import SwiftUI
 import SpriteKit
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 import CatGameCore
 
 /// Display-only choices and summaries; the accepted Core session remains authoritative.
@@ -49,14 +53,15 @@ private struct CatPlayTogetherContent: View {
     let controller: CatPlayTogetherController
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.gameReduceMotionOverride) private var motionOverride
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var cat: CatState? { store.snapshot?.cats.first { $0.id == controller.session.catID } }
     private var effectiveReducedMotion: Bool {
         #if DEBUG
-        reduceMotion || (ProcessInfo.processInfo.arguments.contains("--ui-testing")
+        motionOverride || reduceMotion || (ProcessInfo.processInfo.arguments.contains("--ui-testing")
                          && ProcessInfo.processInfo.arguments.contains("--reduce-motion-test"))
         #else
-        reduceMotion
+        motionOverride || reduceMotion
         #endif
     }
     private var hasFailure: Bool { controller.failed || store.hasSaveFailure }
@@ -108,9 +113,16 @@ private struct CatPlayTogetherContent: View {
         .onChange(of: scenePhase) { _, phase in controller.setVisible(phase == .active) }
         .onChange(of: effectiveReducedMotion) { _, value in controller.scene.reducedMotion = value }
         .onChange(of: controller.phase) { _, value in
+            #if os(iOS)
             if UIAccessibility.isVoiceOverRunning && ["pouncing", "waiting", "tooFast", "satisfied"].contains(value) {
                 UIAccessibility.post(notification: .announcement, argument: GameStrings.text(controller.motionKey))
             }
+            #elseif os(macOS)
+            if ["pouncing", "waiting", "tooFast", "satisfied"].contains(value) {
+                NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                    userInfo: [.announcement: GameStrings.text(controller.motionKey), .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+            }
+            #endif
         }
         .onDisappear { controller.finish() }
     }
@@ -426,6 +438,7 @@ private struct PlaySpeedGauge68: View {
     private var current: some View { Text(GameStrings.text("play68.speed.\(names[index])")).font(.caption.weight(.heavy)).foregroundStyle(index == 3 ? RoomTheme.coralDeep : RoomTheme.darkMint) }
 }
 
+#if os(iOS)
 @MainActor
 private struct CatPlayCanvas: UIViewRepresentable {
     let scene: CatPlayTogetherScene
@@ -443,3 +456,22 @@ private struct CatPlayCanvas: UIViewRepresentable {
     }
     static func dismantleUIView(_ view: SKView, coordinator: ()) { view.isPaused = true }
 }
+#elseif os(macOS)
+@MainActor
+private struct CatPlayCanvas: NSViewRepresentable {
+    let scene: CatPlayTogetherScene
+    let size: CGSize
+    let active: Bool
+    func makeNSView(context: Context) -> SKView {
+        let view = SKView(); view.preferredFramesPerSecond = 30
+        view.allowsTransparency = true; view.setAccessibilityElement(false)
+        scene.size = size; view.presentScene(scene); view.isPaused = !active
+        return view
+    }
+    func updateNSView(_ view: SKView, context: Context) {
+        if scene.size != size { scene.size = size }
+        view.isPaused = !active; scene.isPaused = !active
+    }
+    static func dismantleNSView(_ view: SKView, coordinator: ()) { view.isPaused = true }
+}
+#endif

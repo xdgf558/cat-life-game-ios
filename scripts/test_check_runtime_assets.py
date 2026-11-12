@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 from unittest.mock import patch
 from pathlib import Path
 
-from check_runtime_assets import DOWNLOAD_COMMAND, LFS_HEADER, MANIFEST, SANDBOX_INPUTS, inspect, main
+from check_runtime_assets import DOWNLOAD_COMMAND, LFS_HEADER, MANIFEST, SANDBOX_INPUTS, inspect, main, sandbox_inputs
 
 
 class RuntimeAssetPreflightTests(unittest.TestCase):
@@ -31,18 +31,22 @@ class RuntimeAssetPreflightTests(unittest.TestCase):
         (self.root / MANIFEST).write_text(json.dumps({"schemaVersion": 1, "resources": [
             self.png.relative_to(self.root).as_posix(), self.caf.relative_to(self.root).as_posix()
         ]}))
-        inputs = ["CatLife/Assets.xcassets", "CatLife/Assets.xcassets/Contents.json",
-                  "CatLife/Assets.xcassets/AppIcon.appiconset", "CatLife/Assets.xcassets/AppIcon.appiconset/Contents.json",
-                  self.png.relative_to(self.root).as_posix(), "CatLife/Audio", self.caf.relative_to(self.root).as_posix()]
-        (self.root / SANDBOX_INPUTS).write_text("\n".join("$(SRCROOT)/" + path for path in sorted(inputs)) + "\n")
+        self.mac_png = self.root / "CatLifeMac/Assets.xcassets/MacAppIcon.appiconset/MacAppIcon.png"
+        self.mac_png.parent.mkdir(parents=True)
+        self.mac_png.write_bytes(self.png.read_bytes())
+        (self.mac_png.parent / "Contents.json").write_text(json.dumps({"images": [{"filename": self.mac_png.name}]}))
+        (self.mac_png.parent.parent / "Contents.json").write_text('{"info":{"version":1}}')
+        resources = [self.png.relative_to(self.root).as_posix(), self.caf.relative_to(self.root).as_posix(), self.mac_png.relative_to(self.root).as_posix()]
+        (self.root / MANIFEST).write_text(json.dumps({"schemaVersion": 1, "resources": resources}))
+        (self.root / SANDBOX_INPUTS).write_text("\n".join(sandbox_inputs(self.root, resources)) + "\n")
 
     def test_hydrated_resources_pass(self):
         resources, errors = inspect(self.root)
-        self.assertEqual(len(resources), 2)
+        self.assertEqual(len(resources), 3)
         self.assertEqual(errors, [])
 
     def test_image_and_audio_pointers_fail_with_download_instructions(self):
-        for path in (self.png, self.caf):
+        for path in (self.png, self.caf, self.mac_png):
             with self.subTest(path=path.name):
                 original = path.read_bytes()
                 path.write_bytes(LFS_HEADER + b"\noid sha256:" + b"0" * 64 + b"\nsize 100\n")
@@ -164,7 +168,7 @@ class RuntimeAssetPreflightTests(unittest.TestCase):
                 _, scheme = generate()
                 updated = objects()
                 added_ids = set(updated) - set(original)
-                self.assertEqual(len(added_ids), 2)  # File reference and source-build entry.
+                self.assertEqual(len(added_ids), 4 if relative.startswith("CatLife/") else 2)  # Shared source builds in both apps.
                 self.assertTrue(set(original).issubset(updated))
 
                 def remove_added_references(value):

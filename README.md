@@ -1,10 +1,10 @@
-# 打工养猫日记 · 原生 iOS
+# 打工养猫日记 · 原生 iOS 与 Mac
 
-本仓库独立维护「打工养猫日记」的原生 iOS App，采用 SwiftUI、SpriteKit 和本地 Foundation 核心包，最低 iOS 17；支持简体中文、繁体中文和 English。游戏进度保存在设备本地，提供原生备份导入与导出。
+本仓库维护「打工养猫日记」的原生 iOS 与 Mac 版，采用 SwiftUI、SpriteKit 和共享的 `CatGameCore`，最低 iOS 17、macOS 14；支持简体中文、繁体中文和 English。两端共用玩法、状态协调和美术音频，分别在设备本地保存进度，支持备份导入与导出。
 
 ## 当前状态
 
-当前版本 **0.23.0（68）**，包含陪伴界面与四向家具布置改版，已上传 TestFlight，Apple 已开始处理。
+**0.24.0（69）Mac 核心版已完成开发，待手动验收**。iOS 已上传 TestFlight 的版本仍为 **0.23.0（68）**；69 尚未上传。Steam 接入后续开发。[本版范围与验证记录](docs/releases/0.24.0-mac-core.md)。
 
 ## 获取资源与运行（唯一现行入口）
 
@@ -12,11 +12,11 @@
 
 ```sh
 git lfs install
-git lfs pull --include="CatLife/**"
+git lfs pull --include="CatLife/**,CatLifeMac/**"
 python3 -B scripts/check_runtime_assets.py
 ```
 
-图片和音频使用 Git LFS。只拿到源码或 LFS 指针文件无法构建可运行的 App；以上命令仅拉取运行所需资源，不要求下载历史 QA 媒体和所有美术源文件。资源检查通过后，打开 **`CatLife.xcodeproj`**，选择 **`CatLife` scheme** 和 iPhone 模拟器运行。模拟器不需要开发者账号；真机签名使用自己的 Team，不要修改应用的 Bundle ID。
+图片和音频使用 Git LFS。只拿到源码或 LFS 指针文件无法构建可运行的 App；以上命令仅拉取运行所需资源，不要求下载历史 QA 媒体和所有美术源文件。资源检查通过后，打开 **`CatLife.xcodeproj`**：iOS 选择 **`CatLife` scheme** 和 iPhone 模拟器；Mac 选择 **`CatLifeMac` scheme** 和 **My Mac**。模拟器及本机开发构建不要求发布账号；真机或发布签名使用自己的 Team，不要修改已有目标的 Bundle ID。
 
 构建阶段也会执行同一资源检查。遇到缺文件、LFS 指针、无效文件头或清单问题时，按具体错误处理；构建不会自动联网或重写素材。此检查不替代图片解码、听感和真机验收。
 
@@ -33,13 +33,24 @@ catlife_cache='/Volumes/AI作品素材/开发缓存/本机编译缓存/cat-life-
 mkdir -p "$catlife_cache"
 ```
 
-模拟器构建：
+iOS 模拟器构建：
 
 ```sh
 xcodebuild build -project CatLife.xcodeproj -scheme CatLife \
   -configuration Debug -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath "$catlife_cache/DerivedData" -jobs 4 \
+  CLANG_MODULE_CACHE_PATH="$catlife_cache/ModuleCache.noindex" \
+  SWIFT_MODULE_CACHE_PATH="$catlife_cache/ModuleCache.noindex" \
+  CODE_SIGNING_ALLOWED=NO
+```
+
+Mac 本机构建（产物位于外盘 DerivedData）：
+
+```sh
+xcodebuild build -project CatLife.xcodeproj -scheme CatLifeMac \
+  -configuration Debug -destination 'platform=macOS' \
+  -derivedDataPath "$catlife_cache/MacDerivedData" -jobs 4 \
   CLANG_MODULE_CACHE_PATH="$catlife_cache/ModuleCache.noindex" \
   SWIFT_MODULE_CACHE_PATH="$catlife_cache/ModuleCache.noindex" \
   CODE_SIGNING_ALLOWED=NO
@@ -67,7 +78,42 @@ xcodebuild test -project CatLife.xcodeproj -scheme CatLife \
   CODE_SIGNING_ALLOWED=NO
 ```
 
+Mac App 测试使用本机目标及同一套外盘缓存：
+
+```sh
+xcodebuild test -project CatLife.xcodeproj -scheme CatLifeMac \
+  -configuration Debug -destination 'platform=macOS' \
+  -derivedDataPath "$catlife_cache/MacDerivedData" -jobs 4 \
+  -parallel-testing-enabled NO -only-testing:CatLifeMacTests \
+  CLANG_MODULE_CACHE_PATH="$catlife_cache/ModuleCache.noindex" \
+  SWIFT_MODULE_CACHE_PATH="$catlife_cache/ModuleCache.noindex" \
+  CODE_SIGNING_ALLOWED=NO
+```
+
+Mac 界面测试需要本机 ad hoc 签名，使用下面的命令；将测试类和方法替换为本次需要验证的目标：
+
+```sh
+xcodebuild test -project CatLife.xcodeproj -scheme CatLifeMac \
+  -configuration Debug -destination 'platform=macOS' \
+  -derivedDataPath "$catlife_cache/MacDerivedData" -jobs 4 \
+  -parallel-testing-enabled NO \
+  '-only-testing:CatLifeMacUITests/<测试类>/<方法>' \
+  CLANG_MODULE_CACHE_PATH="$catlife_cache/ModuleCache.noindex" \
+  SWIFT_MODULE_CACHE_PATH="$catlife_cache/ModuleCache.noindex" \
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
+```
+
+Mac UI 测试使用 DEBUG 专用存档、偏好与窗口恢复记录；运行前保存工作，测试会操作前台窗口。上述命令是执行入口，不代表本轮已通过，实际结果以对应 QA 记录为准。
+
 定向 UI 回归使用同一命令，将 `-only-testing:CatLifeTests` 改为 `-only-testing:CatLifeUITests/<测试类>/<方法>`。UI 测试使用专用模拟器与测试存档，勿对玩家真机执行重置夹具。验证记录要区分执行的设备、方法、源码和未覆盖范围，不把历史结果记成本轮重新通过。
+
+## Mac 核心版
+
+桌面界面包含标题、小家、布置、打工、商店、猫咪、猫町和设置八个页面；任务、背包、邻居、医院及备份恢复复用原生面板。支持鼠标与触控板操作、可修改快捷键和窗口设置。
+
+Mac 目标为 `CatLifeMac`，Bundle ID 为 `com.stationcat.catlife.mac`，进度位于 `~/Library/Application Support/CatLifeMac/`，与 iOS 的 `com.stationcat.catlife.native` 及其存档目录独立。两端不会自动同步进度，可由玩家使用原生备份转移。
+
+本版尚未接入 Steam，界面显示“未连接 Steam”。Steam 云存档、账号和冲突处理待后续配置，不把本地保存显示成云端同步成功。
 
 ## 工程与资源维护
 
@@ -75,10 +121,12 @@ xcodebuild test -project CatLife.xcodeproj -scheme CatLife \
 
 | 路径 | 职责 |
 | --- | --- |
-| `CatLife.xcodeproj` | 已生成的 App、App 测试与 UI 测试工程，`CatLife` 为运行 scheme |
-| `CatLife/` | 原生 App：`Views` 界面、`Store` 状态与存盘协调、`Scene` 房间与互动、`Localization` 三语；资源位于 `Assets.xcassets`、`Audio` |
+| `CatLife.xcodeproj` | 双平台工程：iOS scheme 为 `CatLife`，Mac scheme 为 `CatLifeMac` |
+| `CatLife/` | iOS 界面及两端共享的 `Store` 状态协调、`Scene` 房间互动、`Localization` 三语和 `Platform` 适配；共享资源位于 `Assets.xcassets`、`Audio` |
+| `CatLifeMac/` | Mac App 入口、桌面页面、窗口和键鼠设置；不另写玩法结算 |
 | `CatGameCore/` | 独立 Swift 包：玩法、数据校验、存档编解码与迁移，以及核心测试 |
-| `CatLifeTests/`、`CatLifeUITests/` | App 逻辑与真实交互回归，测试夹具不得进入 Release |
+| `CatLifeTests/`、`CatLifeUITests/` | iOS App 逻辑与真实交互回归，测试夹具不得进入 Release |
+| `CatLifeMacTests/`、`CatLifeMacUITests/` | Mac 输入、设置、持久化与桌面交互回归 |
 | `scripts/` | 工程生成、运行资源检查和维护脚本 |
 | `ArtSource/`、`AudioSource/` | 美术及音频制作来源、提示词、清单和处理说明；不参与普通运行资源下载 |
 | `Distribution/TestFlight/`、`QA/` | 发布交接、测试内容和历史验证说明；大型原始产物按既有策略保存在仓库外或 LFS |

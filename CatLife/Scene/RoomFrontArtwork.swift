@@ -1,5 +1,9 @@
 import SpriteKit
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 import CatGameCore
 
 /// Front-facing architecture uses the existing textures, with no floating cutaway outline.

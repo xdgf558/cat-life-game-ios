@@ -1,7 +1,11 @@
 import Foundation
 import CoreGraphics
 import SpriteKit
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 import CatGameCore
 
 /// Art coordinates keep furniture attached to the same room floor on every screen.

@@ -11,10 +11,10 @@ from pathlib import Path
 
 
 LFS_HEADER = b"version https://git-lfs.github.com/spec/v1"
-RUNTIME_DIRECTORIES = ("CatLife/Assets.xcassets", "CatLife/Audio")
+RUNTIME_DIRECTORIES = ("CatLife/Assets.xcassets", "CatLife/Audio", "CatLifeMac/Assets.xcassets")
 MANIFEST = "scripts/runtime_assets.json"
 SANDBOX_INPUTS = "scripts/runtime_assets.xcfilelist"
-DOWNLOAD_COMMAND = 'git lfs pull --include="CatLife/**"'
+DOWNLOAD_COMMAND = 'git lfs pull --include="CatLife/**,CatLifeMac/**"'
 
 
 class Recovery(Enum):
@@ -100,7 +100,7 @@ def inspect(root: Path, *, updating_manifest: bool = False) -> tuple[list[str], 
     # Include every declared catalog file, including newly added assets which
     # have not yet been added to the inventory. The inventory also catches a
     # whole imageset/audio file being deleted, which a directory scan cannot.
-    for metadata in sorted(catalog.rglob("Contents.json")):
+    for metadata in sorted(list(catalog.rglob("Contents.json")) + list((root / "CatLifeMac/Assets.xcassets").rglob("Contents.json"))):
         try:
             content = json.loads(metadata.read_text())
             for collection in ("images", "data"):

@@ -44,7 +44,14 @@ extension GameStore {
         arrangement68.end(arrangementDraft68)
     }
     func undoArrangement68() {
-        guard canEditArrangement68, let previous = arrangement68.undo() else { return }
+        guard canEditArrangement68, let previous = arrangement68.undo(current: arrangementDraft68) else { return }
+        restoreArrangementDraft68(previous)
+    }
+    func redoArrangement68() {
+        guard canEditArrangement68, let next = arrangement68.redo(current: arrangementDraft68) else { return }
+        restoreArrangementDraft68(next)
+    }
+    private func restoreArrangementDraft68(_ previous: ArrangementDraft68) {
         draftBowlPosition = previous.bowl
         draftFurniture = previous.furniture
         draftFurnitureOrientations = previous.orientations

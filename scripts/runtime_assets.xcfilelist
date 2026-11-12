@@ -754,3 +754,8 @@ $(SRCROOT)/CatLife/Audio/sfx-treat-start.caf
 $(SRCROOT)/CatLife/Audio/sfx-wake.caf
 $(SRCROOT)/CatLife/Audio/sfx-work-complete.caf
 $(SRCROOT)/CatLife/Audio/sfx-work-start.caf
+$(SRCROOT)/CatLifeMac/Assets.xcassets
+$(SRCROOT)/CatLifeMac/Assets.xcassets/Contents.json
+$(SRCROOT)/CatLifeMac/Assets.xcassets/MacAppIcon.appiconset
+$(SRCROOT)/CatLifeMac/Assets.xcassets/MacAppIcon.appiconset/Contents.json
+$(SRCROOT)/CatLifeMac/Assets.xcassets/MacAppIcon.appiconset/MacAppIcon.png

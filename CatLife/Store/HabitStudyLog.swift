@@ -19,10 +19,15 @@ actor HabitStudyLog {
     private var entries: [Entry]?
     init(directory: URL? = nil) {
         let base = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        #if DEBUG
-        let folder = ProcessInfo.processInfo.arguments.contains("--ui-testing") ? "CatLife-UITests-HabitStudy" : "CatLife-HabitStudy"
+        #if os(macOS)
+        let prefix = "CatLifeMac"
         #else
-        let folder = "CatLife-HabitStudy"
+        let prefix = "CatLife"
+        #endif
+        #if DEBUG
+        let folder = ProcessInfo.processInfo.arguments.contains("--ui-testing") ? prefix + "-UITests-HabitStudy" : prefix + "-HabitStudy"
+        #else
+        let folder = prefix + "-HabitStudy"
         #endif
         url = base.appendingPathComponent(folder, isDirectory: true)
             .appendingPathComponent("observations.json")

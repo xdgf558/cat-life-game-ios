@@ -1069,4 +1069,7 @@ extension GameStrings {
         .merging(habitDesign68English) { _, new in new }
         .merging(homeDesign68English) { _, new in new }
         .merging(buildDesign68English) { _, new in new }
+        .merging(macShellEnglish) { _, new in new }
+        .merging(macSettingsEnglish) { _, new in new }
+        .merging(macContent69English) { _, new in new }
 }

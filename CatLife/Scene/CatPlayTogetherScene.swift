@@ -1,4 +1,7 @@
 import SpriteKit
+#if os(macOS)
+import AppKit
+#endif
 import CatGameCore
 
 /// A bounded observation stage, separate from home navigation, furniture and recovery.
@@ -151,18 +154,31 @@ final class CatPlayTogetherScene: SKScene {
         onInput = nil; onMotion = nil
         actor.cancelAndSettle(at: actor.position); actor.setIdleEnabled(false)
     }
+    #if os(iOS)
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard !isResponding, let touch = touches.first, touches.count == 1 else { return }
-        dragging = true; program = nil; tracker.reset(); reported.removeAll()
-        attentionUntil = CACurrentMediaTime() + (style == .playful ? 0.05 : 0.35)
-        receive(touch)
-        actor.habitAttention(style: style, facing: toy.position.x < actor.position.x ? -1 : 1)
+        guard let touch = touches.first, touches.count == 1 else { return }
+        beginPointer(at: touch.location(in: self))
     }
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { if dragging, let touch = touches.first { hasDragged = true; receive(touch) } }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if dragging, let touch = touches.first { hasDragged = true; receive(point: touch.location(in: self)) }
+    }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { dragging = false }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { dragging = false; tracker.reset() }
-    private func receive(_ touch: UITouch) {
-        let point = touch.location(in: self)
+    #elseif os(macOS)
+    override func mouseDown(with event: NSEvent) { beginPointer(at: event.location(in: self)) }
+    override func mouseDragged(with event: NSEvent) {
+        if dragging { hasDragged = true; receive(point: event.location(in: self)) }
+    }
+    override func mouseUp(with event: NSEvent) { dragging = false }
+    #endif
+    private func beginPointer(at point: CGPoint) {
+        guard !isResponding else { return }
+        dragging = true; program = nil; tracker.reset(); reported.removeAll()
+        attentionUntil = CACurrentMediaTime() + (style == .playful ? 0.05 : 0.35)
+        receive(point: point)
+        actor.habitAttention(style: style, facing: toy.position.x < actor.position.x ? -1 : 1)
+    }
+    private func receive(point: CGPoint) {
         toy.position = CGPoint(x: min(area.maxX, max(area.minX, point.x)), y: min(area.maxY, max(area.minY, point.y)))
         tracker.move(to: .init(x: Double(toy.position.x / max(1, size.width)), y: Double(1 - toy.position.y / max(1, size.height))), at: CACurrentMediaTime())
         if tracker.kind == .tooFast, !isResponding {

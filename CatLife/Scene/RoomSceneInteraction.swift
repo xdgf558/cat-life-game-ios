@@ -1,5 +1,9 @@
 import SpriteKit
+#if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 import CatGameCore
 
 /// Camera and touch arbitration, including cancelling a drag before a pinch.
@@ -17,6 +21,7 @@ extension RoomScene {
             && bowlPlanningRequest == nil && size.width > 0 && size.height > 0
     }
 
+    #if os(iOS)
     /// UIKit supplies cumulative pinch scale and a location in SKView points.
     func handlePinch(state: UIGestureRecognizer.State, scale: CGFloat, location: CGPoint) {
         switch state {
@@ -41,6 +46,19 @@ extension RoomScene {
 #endif
     }
 
+    #endif
+
+    /// Cursor-anchored wheel/trackpad zoom uses the same clamped camera as touch pinch.
+    func zoomCamera(at point: CGPoint, factor: CGFloat) {
+        guard canZoomCamera, !dragging, !isPlacementPending, factor.isFinite, factor > 0 else { return }
+        cancelSingleTouchSequence()
+        suspendRoomFollowing()
+        roomPresentation.camera.beginPinch(at: point)
+        roomPresentation.camera.changePinch(factor: factor, at: point)
+        roomPresentation.camera.endPinch()
+        updateRoomPresentation()
+    }
+
     func zoomIn() { zoomCamera(by: 1.25) }
     func zoomOut() { zoomCamera(by: 0.8) }
 
@@ -59,7 +77,9 @@ extension RoomScene {
 
     func cancelSingleTouchSequence() {
         blockedTouchSequence = true
+        #if os(iOS)
         sceneTouch = nil
+        #endif
         if dragging { cancelPlacementPreview() }
         _ = roomPresentation.camera.endPan()
         touchOrigin = nil
@@ -74,18 +94,40 @@ extension RoomScene {
         previewArrangementPoint68(point)
     }
 
+    #if os(iOS)
     func beginTouches(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if hasMultipleActiveTouches(touches, event: event) {
-            cancelSingleTouchSequence()
-            return
-        }
-        guard !roomPresentation.camera.isPinching else { return }
-        guard bowlPlanningRequest == nil else { return }
-        guard let touch = touches.first else { return }
-        blockedTouchSequence = false
+        if hasMultipleActiveTouches(touches, event: event) { cancelSingleTouchSequence(); return }
+        guard !roomPresentation.camera.isPinching, bowlPlanningRequest == nil,
+              let touch = touches.first, let view else { return }
         sceneTouch = touch
-        guard let view else { return }
-        let screen = touch.location(in: view)
+        beginPointer(at: touch.location(in: view))
+    }
+    func moveTouches(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if hasMultipleActiveTouches(touches, event: event) { cancelSingleTouchSequence(); return }
+        guard let touch = sceneTouch, touches.contains(touch), let view else { return }
+        movePointer(to: touch.location(in: view))
+    }
+    func endTouches(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = sceneTouch, touches.contains(touch), let view else { return }
+        defer { sceneTouch = nil }
+        endPointer(at: touch.location(in: view))
+    }
+    func cancelTouches(_ touches: Set<UITouch>, with event: UIEvent?) {
+#if DEBUG
+        if diagnostics.furnitureTesting { diagnostics.lastRestInput += ";cancelled" }
+#endif
+        cancelSingleTouchSequence()
+    }
+    private func hasMultipleActiveTouches(_ touches: Set<UITouch>, event: UIEvent?) -> Bool {
+        let active = event?.allTouches?.filter { $0.phase != .ended && $0.phase != .cancelled }
+        return (active?.count ?? touches.count) > 1
+    }
+    #endif
+
+    /// Both platforms enter the same projection, drag and release planning path.
+    func beginPointer(at screen: CGPoint) {
+        guard presentationActive, !roomPresentation.camera.isPinching, bowlPlanningRequest == nil else { return }
+        blockedTouchSequence = false
         let point = roomPresentation.worldPoint(screen: screen)
         touchOrigin = screen
         roomPresentation.camera.beginPan(at: screen)
@@ -119,7 +161,7 @@ extension RoomScene {
         diagnostics.furnitureDragPreviewSamples = 0
         diagnostics.furnitureDragPreviewPoint = nil
 #endif
-        dragScreenPoint = touch.location(in: view)
+        dragScreenPoint = screen
         _ = roomPresentation.camera.endPan()
         setPlacementPending(true)
         // The front floor is not affine; keep the grip in display pixels across its projection sectors.
@@ -131,26 +173,20 @@ extension RoomScene {
 #endif
     }
 
-    func moveTouches(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if hasMultipleActiveTouches(touches, event: event) {
-            cancelSingleTouchSequence()
-            return
-        }
-        guard !blockedTouchSequence, !roomPresentation.camera.isPinching,
-              let touch = sceneTouch, touches.contains(touch) else { return }
+    func movePointer(to screen: CGPoint) {
+        guard !blockedTouchSequence, !roomPresentation.camera.isPinching else { return }
         if !dragging {
-            if let view {
-                if roomPresentation.camera.changePan(to: touch.location(in: view)) { suspendRoomFollowing() }
+            if view != nil {
+                if roomPresentation.camera.changePan(to: screen) { suspendRoomFollowing() }
                 updateRoomPresentation()
             }
             return
         }
-        dragScreenPoint = view.map { touch.location(in: $0) }
+        dragScreenPoint = screen
 #if DEBUG
         let started = CACurrentMediaTime()
 #endif
-        guard let view else { return }
-        let point = roomPresentation.worldPoint(screen: touch.location(in: view), wall: selectedIsWall,
+        let point = roomPresentation.worldPoint(screen: screen, wall: selectedIsWall,
                                                displayOffset: dragDisplayOffset)
         selectedNode.position = previewFloorPoint(point)
 #if DEBUG
@@ -169,18 +205,15 @@ extension RoomScene {
 #endif
     }
 
-    func endTouches(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard !blockedTouchSequence, !roomPresentation.camera.isPinching,
-              let touch = sceneTouch, touches.contains(touch) else { return }
+    func endPointer(at screen: CGPoint) {
+        guard !blockedTouchSequence, !roomPresentation.camera.isPinching else { return }
 #if DEBUG
         if diagnostics.furnitureTesting { diagnostics.lastRestInput += ";ended" }
 #endif
         let wasPanning = roomPresentation.camera.endPan()
-        defer { dragging = false; touchOrigin = nil; dragScreenPoint = nil; sceneTouch = nil }
+        defer { dragging = false; touchOrigin = nil; dragScreenPoint = nil }
         if wasPanning { return }
         if dragging {
-            guard let view else { return }
-            let screen = touch.location(in: view)
             let point = roomPresentation.worldPoint(screen: screen, wall: selectedIsWall,
                                                    displayOffset: dragDisplayOffset)
             selectedNode.position = previewFloorPoint(point)
@@ -207,8 +240,7 @@ extension RoomScene {
             return
         }
         guard !editing, let origin = touchOrigin else { return }
-        guard let view else { return }
-        let point = touch.location(in: view)
+        let point = screen
         guard hypot(point.x - origin.x, point.y - origin.y) < 12 else { return }
         let hit = roomPresentation.hit(screen: point, editing: false)
         if hit == "bowl" { onBowlTapped?() }
@@ -221,18 +253,6 @@ extension RoomScene {
             onBackgroundTapped?()
             if let hit, hit.hasPrefix("furniture-") { requestFurnitureRest68(String(hit.dropFirst("furniture-".count))) }
         }
-    }
-
-    func cancelTouches(_ touches: Set<UITouch>, with event: UIEvent?) {
-#if DEBUG
-        if diagnostics.furnitureTesting { diagnostics.lastRestInput += ";cancelled" }
-#endif
-        cancelSingleTouchSequence()
-    }
-
-    private func hasMultipleActiveTouches(_ touches: Set<UITouch>, event: UIEvent?) -> Bool {
-        let active = event?.allTouches?.filter { $0.phase != .ended && $0.phase != .cancelled }
-        return (active?.count ?? touches.count) > 1
     }
 
     private var selectedIsWall: Bool {
