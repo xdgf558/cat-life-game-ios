@@ -52,7 +52,7 @@ struct MacSettingsView: View {
             .gameCard(cornerRadius: 24)
             .accessibilityIdentifier("macSettingsContent")
         }
-        .font(.system(size: 14, weight: .semibold, design: .rounded))
+        .font(.system(size: 14, weight: .semibold, design: .rounded)).tint(RoomTheme.mint)
         .foregroundStyle(RoomTheme.ink)
         .onAppear {
             audioDraft = store.pendingAudioSettings ?? store.audioSettings
@@ -113,10 +113,7 @@ struct MacSettingsView: View {
     private var displayContent: some View {
         VStack(spacing: 0) {
             row("mac.settings.windowMode", detail: "mac.settings.windowModeHint") {
-                Picker("", selection: $preferences.windowMode) {
-                    ForEach(MacWindowMode.allCases, id: \.self) { mode in Text(GameStrings.text(mode.titleKey)).tag(mode) }
-                }
-                .labelsHidden().pickerStyle(.segmented).frame(width: 320)
+                MacSegmented(selection: $preferences.windowMode, options: MacWindowMode.allCases.map { ($0, GameStrings.text($0.titleKey)) })
                 .onChange(of: preferences.windowMode) { _, _ in windowController.apply() }
                 .accessibilityIdentifier("macWindowMode")
             }
@@ -129,16 +126,10 @@ struct MacSettingsView: View {
                 .disabled(preferences.windowMode != .windowed).accessibilityIdentifier("macWindowSize")
             }
             row("mac.settings.scale", detail: "mac.settings.scaleHint") {
-                Picker("", selection: $preferences.interfaceScale) {
-                    Text("100%").tag(1.0); Text("125%").tag(1.25); Text("150%").tag(1.5)
-                }
-                .labelsHidden().pickerStyle(.segmented).frame(width: 245).accessibilityIdentifier("macInterfaceScale")
+                MacSegmented(selection: $preferences.interfaceScale, options: [(1.0, "100%"), (1.25, "125%"), (1.5, "150%")]).accessibilityIdentifier("macInterfaceScale")
             }
             row("mac.settings.frameLimit", detail: "mac.settings.frameLimitHint") {
-                Picker("", selection: $preferences.frameLimit) {
-                    ForEach([30, 60, 120], id: \.self) { Text(String($0)).tag($0) }
-                }
-                .labelsHidden().pickerStyle(.segmented).frame(width: 215).accessibilityIdentifier("macFrameLimit")
+                MacSegmented(selection: $preferences.frameLimit, options: [30, 60, 120].map { ($0, String($0)) }).accessibilityIdentifier("macFrameLimit")
             }
             toggleRow("mac.settings.reduceMotion", detail: "mac.settings.reduceMotionHint", value: $preferences.reduceMotion, id: "macReduceMotion")
             toggleRow("mac.settings.daylight", detail: "mac.settings.daylightHint", value: $preferences.followDaylight, id: "macFollowDaylight")

@@ -41,7 +41,8 @@ enum NativeSaveLocation {
     static func directory(in base: URL, isMac: Bool, isDebug: Bool,
                           isUITesting: Bool, isAppUnitTesting: Bool = false) -> URL {
         #if DEBUG
-        if isMac && isDebug && isAppUnitTesting {
+        // isAppUnitTesting is always false in Release, so the build mode does not need to gate it here.
+        if isMac && isAppUnitTesting {
             return base.appendingPathComponent(unitTestFolder, isDirectory: true)
         }
         #endif

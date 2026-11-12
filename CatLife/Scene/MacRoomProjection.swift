@@ -9,6 +9,9 @@ struct MacRoomProjection: Sendable {
     static let wallCells: CGFloat = 4.6
     static let stairCells = CGRect(x: 10, y: 4, width: 2, height: 3)
     static let doorClearanceCells = CGRect(x: 0, y: 1, width: 2, height: 2)
+    /// Phone-world sprites are drawn for a tall diamond floor; the wide 12×7 room needs them
+    /// smaller so a cat is about one cell and tall furniture stays under the 4.6-cell walls.
+    static let spriteScale: CGFloat = 0.6
     let floorMapping: RoomFrontFloorProjection
     let angle: RoomViewAngle
     let unit: CGFloat
@@ -52,7 +55,7 @@ struct MacRoomProjection: Sendable {
     func perspectiveScale(at logical: CGPoint) -> CGFloat { scale(atCell: cellPoint(logical: logical)) }
     func scale(atCell cell: CGPoint) -> CGFloat {
         let zr = (cell.x - Self.columns / 2) * sin(radians) + (cell.y - Self.rows / 2) * cos(radians)
-        return distance / max(0.001, distance + zr)
+        return Self.spriteScale * distance / max(0.001, distance + zr)
     }
     func wallPoint(x: CGFloat, height: CGFloat) -> CGPoint {
         projectCell(x: x, height: height, z: Self.rows)

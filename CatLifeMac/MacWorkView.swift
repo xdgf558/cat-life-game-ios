@@ -118,13 +118,17 @@ struct MacWorkView: View {
     private var detail: some View {
         VStack(alignment: .leading, spacing: 18) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    if let active { working(active) } else { jobHero }
-                    Text(WorkJobPresentation.name(displayed.id)).font(.system(size: 28, weight: .heavy))
-                    Text(GameStrings.text("jobs.\(displayed.id).detail")).foregroundStyle(RoomTheme.secondary)
-                    metrics
-                    if active == nil { preview }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                if let active {
+                    working(active)
+                } else {
+                    VStack(alignment: .leading, spacing: 18) {
+                        jobHero
+                        Text(WorkJobPresentation.name(displayed.id)).font(.system(size: 28, weight: .heavy))
+                        Text(GameStrings.text("jobs.\(displayed.id).detail")).foregroundStyle(RoomTheme.secondary)
+                        metrics
+                        preview
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             Spacer(minLength: 0)
             actionBar
@@ -138,23 +142,46 @@ struct MacWorkView: View {
     }
 
     private func working(_ work: ActiveWork) -> some View {
+        // One clock format for the whole run (mm:ss); the ring fills smoothly between one-second ticks.
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            let remaining = max(0, work.endsAt.timeIntervalSince(max(context.date, store.snapshot?.meta.lastSyncAt ?? context.date)))
             let duration = max(1, work.endsAt.timeIntervalSince(work.startedAt))
-            ZStack {
-                Circle().stroke(RoomTheme.track, lineWidth: 14)
-                Circle().trim(from: 0, to: max(0, min(1, 1 - remaining / duration)))
-                    .stroke(RoomTheme.mint, style: StrokeStyle(lineWidth: 14, lineCap: .round)).rotationEffect(.degrees(-90))
-                VStack(spacing: 12) {
-                    Text(GameStrings.text("mac.work.inProgress")).font(.headline).foregroundStyle(RoomTheme.darkMint)
-                    Text(WorkJobPresentation.duration(Int(ceil(remaining)))).font(.system(size: 38, weight: .heavy)).monospacedDigit()
-                    Text(GameStrings.text("mac.work.background"))
-                        .font(.caption).foregroundStyle(RoomTheme.secondary).multilineTextAlignment(.center)
-                }.padding(28)
-            }.frame(width: 255, height: 255).frame(maxWidth: .infinity)
-                .accessibilityElement(children: .combine).accessibilityIdentifier("macWorkCountdown")
-                .accessibilityValue("\(Int(ceil(remaining)))")
+            let remaining = max(0, work.endsAt.timeIntervalSince(max(context.date, store.snapshot?.meta.lastSyncAt ?? context.date)))
+            let seconds = Int(ceil(remaining))
+            VStack(spacing: 18) {
+                ZStack {
+                    Circle().stroke(RoomTheme.track, lineWidth: 26)
+                    Circle().trim(from: 0, to: max(0.002, min(1, 1 - remaining / duration)))
+                        .stroke(RoomTheme.mint, style: StrokeStyle(lineWidth: 26, lineCap: .butt)).rotationEffect(.degrees(-90))
+                        .animation(.linear(duration: 1), value: seconds)
+                    VStack(spacing: 8) {
+                        GameIcon(asset: WorkJobPresentation.asset(work.jobID), symbol: WorkJobPresentation.symbol(work.jobID), size: 54)
+                        Text(seconds > 0 ? MacWorkClock.text(seconds) : GameStrings.text("mac.work.v2.settling"))
+                            .font(.system(size: seconds > 0 ? 64 : 26, weight: .heavy, design: .rounded)).monospacedDigit()
+                            .contentTransition(.numericText(countsDown: true)).lineLimit(1).minimumScaleFactor(0.6)
+                        Text(GameStrings.format("mac.work.v2.total", WorkJobPresentation.duration(Int(duration.rounded()))))
+                            .font(.system(size: 13.5, weight: .bold)).foregroundStyle(RoomTheme.secondary)
+                    }.padding(40)
+                }.frame(width: 286, height: 286).padding(13)
+                    .accessibilityElement(children: .ignore).accessibilityIdentifier("macWorkCountdown")
+                    .accessibilityLabel(GameStrings.text("mac.work.inProgress"))
+                    .accessibilityValue(MacWorkClock.text(seconds))
+                Text(GameStrings.format("mac.work.v2.doing", WorkJobPresentation.name(work.jobID)))
+                    .font(.system(size: 26, weight: .heavy, design: .rounded)).multilineTextAlignment(.center)
+                Text(GameStrings.text("mac.work.background")).font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(RoomTheme.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    rewardChip(GameStrings.format("mac.work.v2.goldAfter", work.goldReward), symbol: "dollarsign.circle.fill", tint: RoomTheme.gold)
+                    rewardChip("+\(work.expReward) " + GameStrings.text("mac.work.experience"), symbol: "star.fill", tint: RoomTheme.lilac)
+                    if preferences?.notificationsEnabled == true {
+                        rewardChip(GameStrings.text("mac.work.v2.notifyOn"), symbol: "bell.fill", tint: RoomTheme.darkMint)
+                    }
+                }
+            }.frame(maxWidth: .infinity).padding(.top, 12)
         }
+    }
+    private func rewardChip(_ text: String, symbol: String, tint: Color) -> some View {
+        Label(text, systemImage: symbol).font(.system(size: 12, weight: .heavy)).foregroundStyle(tint)
+            .padding(.horizontal, 11).padding(.vertical, 6).background(tint.opacity(0.13), in: Capsule())
     }
 
     private var metrics: some View {
@@ -282,6 +309,15 @@ extension View {
         self.padding(padding).frame(maxWidth: .infinity, alignment: .leading)
             .background(RoomTheme.paper, in: RoundedRectangle(cornerRadius: 22))
             .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.white, lineWidth: 2))
+            .compositingGroup()
             .shadow(color: RoomTheme.ink.opacity(0.09), radius: 0, y: 4)
+    }
+}
+
+enum MacWorkClock {
+    static func text(_ seconds: Int) -> String {
+        let value = max(0, seconds)
+        return value >= 3600 ? String(format: "%d:%02d:%02d", value / 3600, value / 60 % 60, value % 60)
+            : String(format: "%02d:%02d", value / 60, value % 60)
     }
 }

@@ -78,7 +78,12 @@ struct RoomFurnitureWorld: Sendable {
 
     func footprint(_ item: FurnitureItem) -> CGSize {
         let size = FurnitureCatalog.footprint(for: item).artworkSize
-        return CGSize(width: size.width * transform.visualScale, height: size.height * transform.visualScale)
+        #if os(macOS)
+        let scale = transform.visualScale * MacRoomProjection.spriteScale
+        #else
+        let scale = transform.visualScale
+        #endif
+        return CGSize(width: size.width * scale, height: size.height * scale)
     }
 
     func rectangle(_ item: FurnitureItem, at center: CGPoint) -> CGRect {

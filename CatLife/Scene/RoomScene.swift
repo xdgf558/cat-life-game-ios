@@ -1445,6 +1445,15 @@ final class RoomScene: SKScene {
         layoutPlanning.cancel(keepingRequest: keepingRequest)
     }
 
+    #if os(macOS)
+    /// A desktop canvas swap (home ↔ arrange) can pause a layout plan while keeping its request;
+    /// the canvas that takes over resumes it, otherwise arranging stays locked as "resolving".
+    func resumeLayoutPlanningIfNeeded() {
+        guard presentationActive, bowlPlanningRequest != nil else { return }
+        startBowlPlanning()
+    }
+    #endif
+
     private func startBowlPlanning() {
         guard presentationActive || readOnlyPreviewEnabled, size.width > 0, size.height > 0,
               !layoutPlanning.isRunning, bowlPlanningRequest != nil else { return }

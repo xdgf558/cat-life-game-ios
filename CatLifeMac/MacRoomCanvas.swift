@@ -289,6 +289,7 @@ private struct MacNativeRoomCanvas: NSViewRepresentable {
         let previewing = readOnlyPreview && previewIsVisible && isActive
         scene.setReadOnlyPreviewEnabled(previewing)
         if scene.presentationActive != active { scene.setPresentationActive(active) }
+        if active { scene.resumeLayoutPlanningIfNeeded() }
         view.requestedFrameLimit = frameLimit
         scene.preferredFrameLimit = view.effectiveFrameLimit
         scene.scaleMode = .resizeFill

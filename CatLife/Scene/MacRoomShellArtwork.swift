@@ -39,7 +39,14 @@ final class MacRoomShellArtwork: SKNode {
                     p(a.x + (b.x - a.x) * u, startHeight + (endHeight - startHeight) * v, a.y + (b.y - a.y) * u)
                 }
             }
-            surface(0, 4.6, texture: plaster, tint: wallpaper, z: -40)
+            let length = hypot(b.x - a.x, b.y - a.y), tiles = max(1, Int((length / 4).rounded()))
+            for tile in 0..<tiles {
+                let t0 = CGFloat(tile) / CGFloat(tiles), t1 = CGFloat(tile + 1) / CGFloat(tiles)
+                textured(plaster, tint: wallpaper, blend: 0.55, z: -40) { u, v in
+                    let t = t0 + (t1 - t0) * u
+                    return p(a.x + (b.x - a.x) * t, 4.6 * v, a.y + (b.y - a.y) * t)
+                }
+            }
             surface(0, 0.34, texture: wood, tint: skirt, z: -36)
             textured(wood, tint: .white, blend: 0.08, z: -34) { u, v in
                 p(a.x + (b.x - a.x) * u + outside.x * v, 4.6, a.y + (b.y - a.y) * u + outside.y * v)
@@ -57,8 +64,12 @@ final class MacRoomShellArtwork: SKNode {
         textured(wood, tint: .black, blend: 0.18, z: -18) { u, v in p(12 * u, -0.4 * v, 0) }
         textured(wood, tint: .black, blend: 0.24, z: -19) { u, v in p(0, -0.4 * v, 7 * u) }
         textured(wood, tint: .black, blend: 0.24, z: -19) { u, v in p(12, -0.4 * v, 7 * u) }
-        textured(wood, tint: upper ? NSColor(red: 0.82, green: 0.69, blue: 0.56, alpha: 1) : .white,
-                 blend: upper ? 0.18 : 0, z: -15) { u, v in p(12 * u, 0, 7 * v) }
+        // One 1024px tile holds 12 planks; tiling it 2×2 keeps each plank about half a cell wide.
+        for column in 0..<2 { for row in 0..<2 {
+            let x0 = CGFloat(column) * 6, z0 = CGFloat(row) * 3.5
+            textured(wood, tint: upper ? NSColor(red: 0.82, green: 0.69, blue: 0.56, alpha: 1) : .white,
+                     blend: upper ? 0.18 : 0, z: -15) { u, v in p(x0 + 6 * u, 0, z0 + 3.5 * v) }
+        } }
         for x: CGFloat in [2.2, 6.6] {
             textured(windowArt, tint: .white, blend: 0, z: -30) { u, v in p(x - 0.9 + 1.8 * u, 1.5 + 2.4 * v, 6.99) }
             children.last?.name = "mac-room-window"

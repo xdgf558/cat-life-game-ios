@@ -40,8 +40,13 @@ struct RoomFloor: Sendable {
         polygon = Self.clip(mapped, to: CGRect(x: 6, y: 24,
                                                width: max(1, sceneSize.width - 12),
                                                height: max(1, sceneSize.height - 30)))
-        catFootprint = CGSize(width: catWidth * 1.36, height: catWidth * 0.25)
-        bowlFootprint = CGSize(width: bowlSize.width * 0.68, height: bowlSize.height * 0.30)
+        #if os(macOS)
+        let displayScale = MacRoomProjection.spriteScale
+        #else
+        let displayScale: CGFloat = 1
+        #endif
+        catFootprint = CGSize(width: catWidth * 1.36 * displayScale, height: catWidth * 0.25 * displayScale)
+        bowlFootprint = CGSize(width: bowlSize.width * 0.68 * displayScale, height: bowlSize.height * 0.30 * displayScale)
         bowlGroundOffset = -bowlSize.width * 0.09
         #if os(macOS)
         doorPlacementObstacle = MacRoomProjection(legacyFloor: polygon, worldSize: sceneSize, angle: .front)

@@ -99,7 +99,7 @@ struct MacTitleView: View {
                         .position(x: size.width * (0.39 + CGFloat(index % 6) * 0.11), y: 55 + CGFloat(index / 6) * 105 + CGFloat(index % 3) * 24)
                 }
                 Image(systemName: "moon.fill").font(.system(size: 58)).foregroundStyle(Color(red: 1, green: 0.94, blue: 0.76))
-                    .shadow(color: .yellow.opacity(0.22), radius: 28).position(x: size.width - 150, y: 92)
+                    .shadow(color: .yellow.opacity(0.22), radius: 28).position(x: size.width - 190, y: 158)
             } else {
                 ForEach(0..<3, id: \.self) { index in
                     LinearGradient(colors: [Color(red: 1, green: 0.94, blue: 0.75).opacity(0.34), .clear], startPoint: .top, endPoint: .bottom)
@@ -113,8 +113,9 @@ struct MacTitleView: View {
         }.allowsHitTesting(false).accessibilityHidden(true)
     }
     private var leftWash: some View {
-        LinearGradient(stops: [.init(color: RoomTheme.cream, location: 0), .init(color: RoomTheme.cream, location: 0.30),
-                               .init(color: RoomTheme.cream.opacity(0.70), location: 0.38), .init(color: .clear, location: 0.56)],
+        LinearGradient(stops: [.init(color: RoomTheme.cream, location: 0), .init(color: RoomTheme.cream, location: 0.33),
+                               .init(color: RoomTheme.cream.opacity(0.86), location: 0.39), .init(color: RoomTheme.cream.opacity(0.55), location: 0.45),
+                               .init(color: RoomTheme.cream.opacity(0.22), location: 0.52), .init(color: .clear, location: 0.60)],
                        startPoint: .leading, endPoint: .trailing)
             .allowsHitTesting(false).accessibilityHidden(true)
     }
@@ -373,6 +374,7 @@ private struct MacTitleButtonStyleV2: ButtonStyle {
         configuration.label.foregroundStyle(primary ? .white : RoomTheme.ink)
             .background(primary ? RoomTheme.mint : RoomTheme.paper.opacity(0.97), in: RoundedRectangle(cornerRadius: primary ? 24 : 18))
             .overlay(RoundedRectangle(cornerRadius: primary ? 24 : 18).stroke(selected ? RoomTheme.mint : .white.opacity(0.85), lineWidth: selected ? 3 : 2))
+            .compositingGroup()
             .shadow(color: primary ? RoomTheme.darkMint : RoomTheme.ink.opacity(0.13), radius: 0, y: configuration.isPressed ? 1 : (primary ? 6 : 4))
             .offset(y: hovered && animated ? -2 : 0).opacity(configuration.isPressed ? 0.88 : 1)
     }

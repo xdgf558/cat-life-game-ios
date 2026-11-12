@@ -28,6 +28,7 @@ struct MacCompactButtonStyle: ButtonStyle {
             .padding(.horizontal, 11).padding(.vertical, 8).frame(minHeight: 36)
             .background(RoomTheme.paper, in: Capsule())
             .overlay(Capsule().strokeBorder(.white, lineWidth: 2))
+            .compositingGroup()
             .shadow(color: RoomTheme.ink.opacity(0.1), radius: 0, y: configuration.isPressed ? 1 : 3)
             .offset(y: configuration.isPressed ? 1 : 0).opacity(isEnabled ? 1 : 0.45)
             .contentShape(Capsule())
@@ -53,6 +54,28 @@ struct MacCapsuleProgress: View {
     }
 }
 
+/// Cream pill segments from the handoff, in place of the grey system segmented control.
+struct MacSegmented<Value: Hashable>: View {
+    @Binding var selection: Value
+    let options: [(Value, String)]
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options.indices, id: \.self) { index in
+                let option = options[index], selected = option.0 == selection
+                Button { selection = option.0 } label: {
+                    Text(option.1).font(.system(size: 13.5, weight: .heavy, design: .rounded))
+                        .foregroundStyle(selected ? RoomTheme.darkMint : RoomTheme.ink)
+                        .padding(.horizontal, 14).padding(.vertical, 8).frame(minWidth: 52)
+                        .background(selected ? RoomTheme.paper : .clear, in: RoundedRectangle(cornerRadius: 11))
+                        .shadow(color: selected ? RoomTheme.ink.opacity(0.08) : .clear, radius: 0, y: 2)
+                        .contentShape(RoundedRectangle(cornerRadius: 11))
+                }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }.padding(4).background(RoomTheme.cream, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(RoomTheme.track.opacity(0.6)))
+            .fixedSize().accessibilityElement(children: .contain)
+    }
+}
 struct MacPanel<Content: View>: View {
     var title: String? = nil
     @ViewBuilder var content: Content
@@ -89,7 +112,9 @@ struct MacNavigationRail: View {
             }
             Spacer(minLength: 8)
             Button(action: help) { Image(systemName: "questionmark.circle.fill").font(.system(size: 25)).frame(width: 60, height: 42) }.buttonStyle(.plain).help(GameStrings.text("mac.help"))
-            Button { select(.settings) } label: { Image(systemName: "gearshape.fill").font(.system(size: 25)).frame(width: 60, height: 48) }.buttonStyle(.plain).help(GameStrings.text("mac.page.settings")).accessibilityIdentifier("macNav_settings")
+            Button { select(.settings) } label: { Image(systemName: "gearshape.fill").font(.system(size: 25)).frame(width: 74, height: 52)
+                .background(page == .settings ? RoomTheme.paleMint : .clear, in: RoundedRectangle(cornerRadius: 17))
+                .foregroundStyle(page == .settings ? RoomTheme.darkMint : RoomTheme.ink) }.buttonStyle(.plain).help(GameStrings.text("mac.page.settings")).accessibilityIdentifier("macNav_settings")
         }.foregroundStyle(RoomTheme.ink).frame(width: 92).background(RoomTheme.paper)
             .overlay(alignment: .trailing) { Rectangle().fill(RoomTheme.track).frame(width: 1) }
     }
@@ -99,15 +124,34 @@ struct MacTopBar: View {
     let page: MacPage
     let onSaves: () -> Void
     let onPlayer: () -> Void
+    private var subtitle: String? {
+        guard let snapshot = store.snapshot else { return nil }
+        switch page {
+        case .home:
+            let floor = GameStrings.text(store.visibleHomeFloor == .ground ? "mac.floor.ground" : "mac.floor.upper")
+            if store.isDecorating { return GameStrings.format("mac.build.v2.subtitle", floor) }
+            let day = MacTitleMetricsV2.dayNumber(createdAt: snapshot.meta.createdAt, at: max(store.now, snapshot.meta.lastSyncAt))
+            return [store.homeDisplayName, "Lv\(snapshot.home.roomLevel)", GameStrings.format("mac.home.v2.day", day)].joined(separator: " · ")
+        case .work: return GameStrings.format("mac.top.v2.work", snapshot.player.level)
+        case .shop: return GameStrings.text("mac.top.v2.shop")
+        case .town: return GameStrings.text("mac.top.v2.town")
+        case .cats: return GameStrings.text("mac.top.v2.cats")
+        default: return nil
+        }
+    }
     var body: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 14) {
             HStack(spacing: 10) {
-                Image(systemName: page.symbol).foregroundStyle(RoomTheme.darkMint)
-                Text(page == .home ? store.homeDisplayName : GameStrings.text(page.key))
-                    .font(.system(size: 22, weight: .heavy, design: .rounded)).lineLimit(1)
-                if page == .home { Text("Lv\(store.snapshot?.home.roomLevel ?? 1)").font(.caption.weight(.heavy)).padding(6).background(RoomTheme.paper, in: Capsule()) }
-            }.padding(.horizontal, 20).padding(.vertical, 10).background(RoomTheme.wood, in: RoundedRectangle(cornerRadius: 15))
-                .overlay(RoundedRectangle(cornerRadius: 15).stroke(RoomTheme.secondary.opacity(0.3), lineWidth: 2))
+                Image(systemName: page == .home && store.isDecorating ? "sofa.fill" : page.symbol).foregroundStyle(RoomTheme.darkMint)
+                Text(page == .home && store.isDecorating ? GameStrings.text("mac.build.v2.title") : GameStrings.text(page.key)).font(.system(size: 22, weight: .heavy, design: .rounded)).lineLimit(1)
+            }.padding(.horizontal, 20).padding(.vertical, 10)
+                .background(RoomTheme.wood.opacity(0.85), in: RoundedRectangle(cornerRadius: 15))
+                .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color(red: 0.72, green: 0.52, blue: 0.33).opacity(0.55), lineWidth: 2))
+                .compositingGroup().shadow(color: Color(red: 0.6, green: 0.42, blue: 0.25).opacity(0.5), radius: 0, y: 4)
+            if let subtitle {
+                Text(subtitle).font(.system(size: 14, weight: .bold, design: .rounded)).foregroundStyle(RoomTheme.secondary)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
             Spacer(minLength: 8)
             Button(action: onSaves) {
                 Label(GameStrings.text(store.hasSaveFailure ? "mac.save.failed" : store.isBusy ? "mac.save.saving" : "mac.save.local"), systemImage: store.hasSaveFailure ? "exclamationmark.circle.fill" : "checkmark.circle.fill")

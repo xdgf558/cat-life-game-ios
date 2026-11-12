@@ -70,11 +70,8 @@ struct MacBuildView: View {
                     .focused($searchFocused).accessibilityIdentifier("macBuildSearch")
                 Text(preferences.binding(for: .search).label).font(.caption.monospaced()).foregroundStyle(RoomTheme.secondary)
             }.padding(10).background(RoomTheme.cream, in: RoundedRectangle(cornerRadius: 12))
-            Picker(GameStrings.text("mac.build.filter"), selection: $filter) {
-                ForEach(["all", "floor", "wall", "bag"], id: \.self) { value in
-                    Text(GameStrings.text("mac.build.filter." + value)).tag(value)
-                }
-            }.pickerStyle(.segmented).labelsHidden()
+            MacSegmented(selection: $filter, options: ["all", "floor", "wall", "bag"].map { ($0, GameStrings.text("mac.build.filter." + $0)) })
+                .accessibilityLabel(GameStrings.text("mac.build.filter"))
             ScrollView {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                     ForEach(items) { item in catalogItem(item) }
@@ -125,7 +122,7 @@ struct MacBuildView: View {
             isDaylight: !preferences.followDaylight || !MacTitleMetricsV2.isNight(at: store.now),
             onRestRequest: onRestRequest, onContextAction: onContextAction, onFixedStructure: onFixedStructure)
             .id(store.saveSceneGeneration.uuidString + ":build:" + store.visibleHomeFloor.rawValue)
-            .overlay(alignment: .top) { toolbar.padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)).padding(12) }
+            .overlay(alignment: .top) { toolbar.padding(14) }
             .overlay(alignment: .bottom) {
                 HStack(spacing: 10) {
                     Text(GameStrings.format("mac.build.stageHint", preferences.binding(for: .rotateRight).label, preferences.binding(for: .putAway).label))
@@ -146,19 +143,31 @@ struct MacBuildView: View {
         }
     }
     private var historyControls: some View {
-        HStack(spacing: 6) {
-            tool("arrow.uturn.backward", .undo) { store.undoArrangement68() }
-                .disabled(!store.canEditArrangement68 || !store.arrangement68.canUndo)
+        HStack(spacing: 8) {
+            labelled(GameStrings.text("mac.build.v2.undo"), symbol: "arrow.uturn.backward", key: .undo) { store.undoArrangement68() }
+                .disabled(!store.canEditArrangement68 || !store.arrangement68.canUndo).accessibilityIdentifier("macBuildUndo")
             tool("arrow.uturn.forward", .redo) { store.redoArrangement68() }
                 .disabled(!store.canEditArrangement68 || !store.arrangement68.canRedo)
-            Button { store.arrangement68.snapEnabled.toggle() } label: {
-                Image(systemName: "square.grid.3x3").frame(width: 34, height: 34)
-                    .background(store.arrangement68.snapEnabled ? RoomTheme.mint : RoomTheme.paper, in: RoundedRectangle(cornerRadius: 10))
-                    .foregroundStyle(store.arrangement68.snapEnabled ? .white : RoomTheme.ink)
-            }.buttonStyle(.plain).disabled(!store.canEditArrangement68)
-                .help(GameStrings.text("build68.snap") + " · " + preferences.binding(for: .grid).label)
-                .accessibilityLabel(GameStrings.text("build68.snap")).accessibilityIdentifier("macBuildGrid")
+            labelled(GameStrings.text("build68.snap"), symbol: "square.grid.2x2.fill", key: .grid, active: store.arrangement68.snapEnabled) {
+                store.arrangement68.snapEnabled.toggle()
+            }.disabled(!store.canEditArrangement68).accessibilityIdentifier("macBuildGrid")
         }
+    }
+    private func labelled(_ title: String, symbol: String, key: MacCommand, active: Bool = false, prominent: Bool = false,
+                          action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol); Text(title).lineLimit(1)
+                Text(preferences.binding(for: key).label).font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(active || prominent ? RoomTheme.darkMint : RoomTheme.secondary)
+                    .padding(.horizontal, 5).padding(.vertical, 2).background(.white.opacity(0.85), in: RoundedRectangle(cornerRadius: 5))
+            }.font(.system(size: 13.5, weight: .heavy, design: .rounded))
+                .foregroundStyle(active || prominent ? .white : RoomTheme.ink)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(active || prominent ? RoomTheme.mint : RoomTheme.paper, in: RoundedRectangle(cornerRadius: 13))
+                .overlay(RoundedRectangle(cornerRadius: 13).stroke(.white, lineWidth: 2))
+                .compositingGroup().shadow(color: (active || prominent ? RoomTheme.darkMint : RoomTheme.ink.opacity(0.12)), radius: 0, y: 3)
+        }.buttonStyle(.plain).fixedSize()
     }
     private var saveStatus: some View {
         Text(GameStrings.text(store.isSavingLayout ? "mac.build.saving" : store.hasUnsavedLayoutChanges ? "build68.dirty" : "mac.build.editing"))
@@ -166,11 +175,11 @@ struct MacBuildView: View {
             .lineLimit(2).multilineTextAlignment(.center)
     }
     private var closingControls: some View {
-        HStack(spacing: 6) {
-            Button(GameStrings.text("layout.cancel")) { requestCancel() }.disabled(store.isSavingLayout || store.isBusy)
-                .buttonStyle(.bordered).accessibilityIdentifier("macBuildCancel")
-            Button(GameStrings.text("layout.done")) { store.finishDecorating() }.disabled(!canSave)
-                .buttonStyle(.borderedProminent).tint(RoomTheme.mint).accessibilityIdentifier("macBuildSave")
+        HStack(spacing: 8) {
+            labelled(GameStrings.text("layout.cancel"), symbol: "xmark.square.fill", key: .escape) { requestCancel() }
+                .disabled(store.isSavingLayout || store.isBusy).accessibilityIdentifier("macBuildCancel")
+            labelled(GameStrings.text("layout.done"), symbol: "checkmark.square.fill", key: .save, prominent: true) { store.finishDecorating() }
+                .disabled(!canSave).opacity(canSave ? 1 : 0.55).accessibilityIdentifier("macBuildSave")
         }
     }
     private var viewControls: some View {
@@ -214,14 +223,32 @@ struct MacBuildView: View {
                 }.buttonStyle(.borderedProminent).controlSize(.large).tint(RoomTheme.mint)
                     .disabled(!store.canEditArrangement68 || store.selectedArrangementIssue68 != nil).accessibilityIdentifier("macBuildConfirm")
             } else {
-                Spacer()
-                Image(systemName: "hand.point.up.left.fill").font(.system(size: 50)).foregroundStyle(RoomTheme.mint).frame(maxWidth: .infinity)
-                Text(GameStrings.text("mac.build.pickFurniture")).font(.headline).multilineTextAlignment(.center).frame(maxWidth: .infinity)
-                Text(GameStrings.text("mac.build.pickHint")).foregroundStyle(RoomTheme.secondary).multilineTextAlignment(.center)
-                Spacer()
+                Label(GameStrings.text("mac.build.pickFurniture"), systemImage: "hand.point.up.left.fill")
+                    .font(.system(size: 16, weight: .heavy, design: .rounded)).foregroundStyle(RoomTheme.ink)
+                Text(GameStrings.text("mac.build.pickHint")).font(.system(size: 13, weight: .semibold)).foregroundStyle(RoomTheme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Label(GameStrings.text("mac.build.v2.placedHere"), systemImage: "square.stack.3d.up.fill")
+                    .font(.system(size: 15, weight: .heavy, design: .rounded)).padding(.top, 10)
+                ForEach(placedOnFloor, id: \.id) { item in
+                    Button { store.selectFurniture(id: item.id) } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "cube.fill").foregroundStyle(RoomTheme.wood)
+                            Text(GameStrings.text(FurnitureCatalog.metadata(for: item.kind).nameKey)).font(.system(size: 13.5, weight: .bold)).lineLimit(1)
+                            Spacer(minLength: 6)
+                            Text(GameStrings.text("build68.facing." + (store.draftFurnitureOrientations?[item.id] ?? item.orientation).rawValue))
+                                .font(.system(size: 12, weight: .semibold)).foregroundStyle(RoomTheme.secondary)
+                        }.padding(.vertical, 7).padding(.horizontal, 6).contentShape(Rectangle())
+                    }.buttonStyle(.plain).disabled(!store.canEditArrangement68)
+                }
             }
         }.padding(16).background(RoomTheme.paper, in: RoundedRectangle(cornerRadius: 24))
             .overlay(RoundedRectangle(cornerRadius: 24).stroke(.white, lineWidth: 2))
+    }
+    private var placedOnFloor: [FurnitureItem] {
+        let placements = store.draftFurniture ?? store.snapshot?.home.furniture ?? []
+        let ids = placements.filter { $0.floor == store.visibleHomeFloor }.map(\.itemID)
+        let items = store.snapshot?.inventory.furniture ?? []
+        return ids.compactMap { id in items.first { $0.id == id } }
     }
     private var dimensions: String {
         guard let selected else { return GameStrings.text("build68.bowlFixed") }

@@ -898,7 +898,8 @@ final class GameStore {
         if let cat { recordHabitStudy("launch", catID: cat.id) }
         var notices: [String] = []
         #if os(macOS)
-        if prepared.home != loaded.home {
+        // A brand-new home is seeded with the wide-room layout; only an existing layout was "repaired".
+        if !isNewHome, prepared.home != loaded.home {
             notices.append(GameStrings.text("mac.room.repaired"))
         }
         #endif
