@@ -2,6 +2,10 @@ import Foundation
 
 extension GameStrings {
     static let macShellChinese: [String: String] = [
+        "mac.quit.timeout": "保存仍未完成",
+        "mac.quit.timeoutBody": "已等待 5 秒，最后的设置或游戏进度可能尚未保存。你可以取消退出，继续等待或重试保存；仍然退出可能丢失未保存的改动。",
+        "mac.quit.cancelExit": "取消退出",
+        "mac.quit.exitAnyway": "仍然退出",
         "mac.notifications.cat.title": "猫咪需要你",
         "mac.notifications.cat.hunger": "%@有点饿了，回小家看看吧。",
         "mac.notifications.cat.illness": "%@不太舒服，回小家看看，必要时去医院。",
@@ -72,6 +76,10 @@ extension GameStrings {
         "releases.69.body": "新增原生 Mac 桌面界面、鼠标与键盘操作、窗口与显示设置；复用现有玩法和素材，Mac 进度独立保存在本机，Steam 接入后续提供。",
     ]
     static let macShellTraditional: [String: String] = [
+        "mac.quit.timeout": "儲存仍未完成",
+        "mac.quit.timeoutBody": "已等待 5 秒，最後的設定或遊戲進度可能尚未儲存。你可以取消離開，繼續等待或重試儲存；仍然離開可能遺失未儲存的變更。",
+        "mac.quit.cancelExit": "取消離開",
+        "mac.quit.exitAnyway": "仍然離開",
         "mac.notifications.cat.title": "貓咪需要你",
         "mac.notifications.cat.hunger": "%@有點餓了，回小家看看吧。",
         "mac.notifications.cat.illness": "%@不太舒服，回小家看看，必要時去醫院。",
@@ -142,6 +150,10 @@ extension GameStrings {
         "releases.69.body": "新增原生 Mac 桌面介面、滑鼠與鍵盤操作、視窗與顯示設定；共用既有玩法與素材，Mac 進度獨立儲存在本機，Steam 接入後續提供。",
     ]
     static let macShellEnglish: [String: String] = [
+        "mac.quit.timeout": "Saving has not finished",
+        "mac.quit.timeoutBody": "Saving has taken over 5 seconds. Your latest settings or progress may not be saved. Cancel to keep waiting or retry saving. Quitting now may lose unsaved changes.",
+        "mac.quit.cancelExit": "Cancel Quit",
+        "mac.quit.exitAnyway": "Quit Anyway",
         "mac.notifications.cat.title": "Your cat needs you",
         "mac.notifications.cat.hunger": "%@ is hungry. Come home for a visit.",
         "mac.notifications.cat.illness": "%@ is feeling unwell. Check in at home and visit the hospital if needed.",

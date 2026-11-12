@@ -18,19 +18,19 @@ actor HabitStudyLog {
     private let url: URL
     private var entries: [Entry]?
     init(directory: URL? = nil) {
-        let base = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         #if os(macOS)
-        let prefix = "CatLifeMac"
-        #else
-        let prefix = "CatLife"
-        #endif
-        #if DEBUG
-        let folder = ProcessInfo.processInfo.arguments.contains("--ui-testing") ? prefix + "-UITests-HabitStudy" : prefix + "-HabitStudy"
-        #else
-        let folder = prefix + "-HabitStudy"
-        #endif
-        url = base.appendingPathComponent(folder, isDirectory: true)
+        let saveDirectory = directory ?? NativeSaveLocation.currentDirectory
+        url = saveDirectory.appendingPathComponent("HabitStudy", isDirectory: true)
             .appendingPathComponent("observations.json")
+        #else
+        let base = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        #if DEBUG
+        let folder = ProcessInfo.processInfo.arguments.contains("--ui-testing") ? "CatLife-UITests-HabitStudy" : "CatLife-HabitStudy"
+        #else
+        let folder = "CatLife-HabitStudy"
+        #endif
+        url = base.appendingPathComponent(folder, isDirectory: true).appendingPathComponent("observations.json")
+        #endif
     }
     func append(_ entry: Entry) throws {
         try load()

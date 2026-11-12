@@ -1,9 +1,73 @@
 #if os(macOS)
 import XCTest
+import AppKit
 @testable import CatLifeMac
 
 @MainActor
 final class MacRoomInputTests: XCTestCase {
+    func testOnlyCatClicksWaitWhileBowlFurnitureAndBackgroundRespondImmediately() async throws {
+        let size = CGSize(width: 800, height: 600)
+        let scene = RoomScene(size: size)
+        scene.reducedMotion = true
+        let view = MacRoomSKView(frame: CGRect(origin: .zero, size: size))
+        let window = NSWindow(contentRect: view.frame, styleMask: [], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        view.presentScene(scene)
+        scene.apply(snapshot: .fresh(now: Date()), editing: false)
+        defer {
+            view.inputEnabled = false
+            scene.setPresentationActive(false)
+            view.presentScene(nil)
+            window.close()
+        }
+        for _ in 0..<200 where scene.bowlPlanningRequest != nil {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertNil(scene.bowlPlanningRequest)
+        scene.updateRoomPresentation()
+        var meals = 0, backgrounds = 0, profiles = 0, closeUps = 0
+        scene.onBowlTapped = { meals += 1 }
+        scene.onBackgroundTapped = { backgrounds += 1 }
+        scene.onCatTapped = { profiles += 1 }
+        view.contextAction = { if case .closeUp = $0 { closeUps += 1 } }
+
+        let bowl = try XCTUnwrap(scene.roomPresentation.frame("bowl"))
+        let bowlPoint = CGPoint(x: bowl.midX, y: bowl.midY)
+        try clickRoom(at: bowlPoint, count: 1, in: view)
+        XCTAssertEqual(meals, 1, "The bowl action must arrive before another click can cancel it.")
+        let cabinet = try XCTUnwrap(scene.ownedFurniture.first { $0.kind == .cabinet })
+        let furniture = try XCTUnwrap(scene.roomPresentation.frame("furniture-" + cabinet.id))
+        try clickRoom(at: CGPoint(x: furniture.midX, y: furniture.midY), count: 1, in: view)
+        XCTAssertEqual(backgrounds, 1, "Furniture must not wait for an unrelated cat double-click.")
+        let empty = try XCTUnwrap(stride(from: 20, to: 580, by: 40).lazy.flatMap { y in
+            stride(from: 20, to: 780, by: 40).map { CGPoint(x: CGFloat($0), y: CGFloat(y)) }
+        }.first { scene.roomPresentation.hit(screen: $0, editing: false) == nil })
+        try clickRoom(at: empty, count: 1, in: view)
+        XCTAssertEqual(backgrounds, 2, "Background taps must clear overlays immediately.")
+        try clickRoom(at: bowlPoint, count: 2, in: view)
+        XCTAssertEqual(meals, 2, "A second non-cat click must not be swallowed by double-click arbitration.")
+
+        let cat = try XCTUnwrap(scene.roomPresentation.frame("cat"))
+        let catPoint = CGPoint(x: cat.midX, y: cat.midY)
+        try clickRoom(at: catPoint, count: 1, in: view)
+        XCTAssertEqual(profiles, 0, "A cat click must still wait for the native double-click interval.")
+        try clickRoom(at: catPoint, count: 2, in: view)
+        XCTAssertEqual(closeUps, 1)
+        XCTAssertEqual(profiles, 0, "The second cat click must cancel the pending modal profile.")
+    }
+
+    private func clickRoom(at point: CGPoint, count: Int, in view: MacRoomSKView) throws {
+        let local = MacRoomPointer.screenPoint(point, height: view.bounds.height, isFlipped: view.isFlipped)
+        let location = view.convert(local, to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: view.window?.windowNumber ?? 0,
+                context: nil, eventNumber: 1, clickCount: count, pressure: 1))
+            if type == .leftMouseDown { view.mouseDown(with: event) } else { view.mouseUp(with: event) }
+        }
+    }
+
     func testNativeViewCoordinatesMatchSceneTopLeftConvention() {
         let point = CGPoint(x: 240, y: 160)
         XCTAssertEqual(MacRoomPointer.screenPoint(point, height: 720, isFlipped: false), CGPoint(x: 240, y: 560))

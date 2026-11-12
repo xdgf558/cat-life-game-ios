@@ -197,17 +197,16 @@ struct MacDesktopRoot: View {
     }
     private func start() async {
         #if DEBUG
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil,
-           !ProcessInfo.processInfo.arguments.contains("--ui-testing") { return }
+        if NativeSaveLocation.isAppUnitTesting { return }
         #endif
+        guard delegate.prepareSaveAccess(directory: store.saveDirectory) else { return }
         let controller = MacWindowController(preferences: preferences)
         controller.shouldClose = { NSApp.terminate(nil); return false }
         windowController = controller
         delegate.requestQuit = requestQuit
         let router = MacKeyboardRouter(preferences: preferences, handler: handle)
         keyboard = router; router.start()
-        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("CatLifeMac")
-        hadSave = FileManager.default.fileExists(atPath: folder.appendingPathComponent("cat-life-native-v1.json").path)
+        hadSave = store.hasSavedProgress
         await store.load()
         if canCreateRoomScene { scene = makeScene() }
         appIsActive = NSApp.isActive
@@ -377,26 +376,48 @@ struct MacDesktopRoot: View {
         }
         return true
     }
+    private var hasPendingQuitWrites: Bool { store.isBusy || store.isSavingLayout || store.saveTransferInProgress }
     private func requestQuit() -> NSApplication.TerminateReply {
         guard !quitting else { return .terminateCancel }
-        if store.isDecorating {
+        if store.isDecorating && !store.isSavingLayout {
             guard !store.hasUnsavedLayoutChanges || confirm("mac.draft.title", body: "mac.quit.draft") else { return .terminateCancel }
             store.cancelDecorating()
         }
-        guard !store.saveTransferInProgress, !store.isSavingLayout else { store.showNotice(GameStrings.text("mac.quit.wait")); return .terminateCancel }
         quitting = true
+        let clock = ContinuousClock()
+        let started = clock.now
+        let deadline = started.advanced(by: MacQuitWaitPolicy.budget)
         let settings = MacSettingsFlushRequest()
         NotificationCenter.default.post(name: .macFlushSettings69, object: settings)
-        Task {
-            await settings.save?.value
-            store.setForeground(false)
-            await Task.yield()
-            while store.isBusy { try? await Task.sleep(for: .milliseconds(100)) }
-            let allowed = !store.hasSaveFailure || confirm("mac.quit.failed", body: "mac.quit.failedBody")
+        let completion = MacQuitSettingsCompletion(finished: settings.save == nil)
+        // This observer cannot reply to AppKit, even if the save finishes after the deadline.
+        let settingsObserver = settings.save.map { save in
+            Task { @MainActor in await save.value; completion.finished = true }
+        }
+        store.setForeground(false)
+        Task { @MainActor in
+            defer { settingsObserver?.cancel() }
+            var outcome = MacQuitWaitPolicy.outcome(settingsFinished: completion.finished, storeBusy: hasPendingQuitWrites,
+                                                    elapsed: started.duration(to: clock.now))
+            while outcome == .waiting {
+                try? await clock.sleep(until: min(deadline, clock.now.advanced(by: .milliseconds(50))))
+                outcome = MacQuitWaitPolicy.outcome(settingsFinished: completion.finished, storeBusy: hasPendingQuitWrites,
+                                                    elapsed: started.duration(to: clock.now))
+            }
+            let allowed = outcome == .timedOut ? confirmQuitAfterTimeout()
+                : !store.hasSaveFailure || confirm("mac.quit.failed", body: "mac.quit.failedBody")
             quitting = false; NSApp.reply(toApplicationShouldTerminate: allowed)
             if !allowed { appIsActive = NSApp.isActive; store.setForeground(appForeground) }
         }
         return .terminateLater
+    }
+    private func confirmQuitAfterTimeout() -> Bool {
+        let alert = NSAlert(); alert.alertStyle = .warning
+        alert.messageText = GameStrings.text("mac.quit.timeout")
+        alert.informativeText = GameStrings.text("mac.quit.timeoutBody")
+        alert.addButton(withTitle: GameStrings.text("mac.quit.cancelExit"))
+        alert.addButton(withTitle: GameStrings.text("mac.quit.exitAnyway"))
+        return alert.runModal() == .alertSecondButtonReturn
     }
     private func confirm(_ title: String, body: String) -> Bool {
         let alert = NSAlert(); alert.messageText = GameStrings.text(title); alert.informativeText = GameStrings.text(body)
@@ -431,6 +452,21 @@ struct MacDesktopRoot: View {
         store.isShowingNeighbors = false; store.isShowingMarket = false; store.isShowingTownBoard = false
     }
 }
+@MainActor
+private final class MacQuitSettingsCompletion {
+    var finished: Bool
+    init(finished: Bool) { self.finished = finished }
+}
+
+enum MacQuitWaitPolicy {
+    enum Outcome: Equatable { case waiting, ready, timedOut }
+    static let budget: Duration = .seconds(5)
+    static func outcome(settingsFinished: Bool, storeBusy: Bool, elapsed: Duration) -> Outcome {
+        if settingsFinished && !storeBusy { return .ready }
+        return elapsed >= budget ? .timedOut : .waiting
+    }
+}
+
 private enum MacAuxiliary: String, Identifiable {
     case tasks, inventory, upgrade, hospital, neighbors, neighborDetail, market, board, saves, player, catProfile
     var id: String { rawValue }

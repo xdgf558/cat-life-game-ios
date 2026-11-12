@@ -8,7 +8,7 @@
 - 采用满足完整需求的最小改动，检查相关调用方、边界和必要验证，保留既有架构，不顺带做全仓重构。
 - `CatGameCore` 管玩法、校验和存档；`CatLife/Store` 管状态与持久化协调；`Scene` 管 SpriteKit 展示和互动；`Views` 管共享及 iOS 界面，`CatLifeMac` 管 Mac 桌面界面、窗口和键鼠操作。两端共享 Core、Store 与运行素材；时间结算走现有同步流程，界面不另算奖励或扣费。
 - 保持单机本地进度。iOS 与 Mac 使用独立 Bundle ID 和存档目录，不自动同步或覆盖对方进度。用户已明确本轮先做 Mac 核心版，Steam、云存档及冲突处理后续接入；界面如实显示未连接，不模拟云端成功。
-- Mac 目标为 `CatLifeMac`，最低 macOS 14，Xcode 选择 `CatLifeMac` scheme 与 My Mac；Bundle ID 为 `com.stationcat.catlife.mac`，存档目录为 `~/Library/Application Support/CatLifeMac/`。iOS Bundle ID 仍为 `com.stationcat.catlife.native`。
+- Mac 目标为 `CatLifeMac`，最低 macOS 14，Xcode 选择 `CatLifeMac` scheme 与 My Mac；Bundle ID 为 `com.stationcat.catlife.mac`，Release 存档目录为 `~/Library/Application Support/CatLifeMac/`，Debug 为 `CatLifeMac-Development/`，UI 测试为 `CatLifeMac-UITests/`；游戏加载前须取得目录锁。iOS Bundle ID 仍为 `com.stationcat.catlife.native`。
 - 新字段必须兼容已有原生存档，按版本显式迁移并覆盖旧档、损坏数据与失败路径；不放宽校验、不悄悄清零、不编造历史。涉及持久化格式或旧版不认识的数据时检查 schema 并更新迁移保护测试。
 - 金币、物品、任务和奖励以保存成功后的已提交状态为准，保存失败不得部分扣费或发布未落盘结果。导入、切猫、换楼层等异步回调继续核对存档代次和场景有效性。
 - 用户文案使用现有本地化机制，新增或修改时同步简体中文、繁体中文和英语，检查 key 与格式参数一致。保留大字号、VoiceOver、减少动态效果、现有触控及 Mac 键鼠适配；文本输入和弹窗不得被全局快捷键抢占。

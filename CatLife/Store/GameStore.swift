@@ -160,6 +160,9 @@ final class GameStore {
     }
     #if DEBUG
     @ObservationIgnored private var fixtures = GameStoreFixtures()
+    #if os(macOS)
+    @ObservationIgnored private var uiTestResetDirectory: URL?
+    #endif
     #endif
 
     private struct RestTransition {
@@ -180,12 +183,7 @@ final class GameStore {
     }
 
     init(directory: URL? = nil) {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        #if os(macOS)
-        let saveFolder = "CatLifeMac"
-        #else
-        let saveFolder = "CatLife"
-        #endif
+        let saveDirectory = directory ?? NativeSaveLocation.currentDirectory
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         let testing = arguments.contains("--ui-testing")
@@ -197,19 +195,26 @@ final class GameStore {
             reminderDefaults.removeObject(forKey: "catlife.home.upperHintSeen.v1")
             reminderDefaults.removeObject(forKey: "catlife.habits.studyMode.v1")
         }
-        let saveDirectory = directory ?? base.appendingPathComponent(testing ? saveFolder + "-UITests" : saveFolder, isDirectory: true)
         fixtures = GameStoreFixtures(arguments: arguments, allowsSeeding: directory == nil)
         if testing && arguments.contains("--reset-ui-test-save") && directory == nil {
+            #if os(macOS)
+            // The delegate acquires the process lock before load clears fixture files.
+            uiTestResetDirectory = saveDirectory
+            #else
             try? FileManager.default.removeItem(at: saveDirectory)
             do { try fixtures.seedLoadFailureFiles(in: saveDirectory) }
             catch { assertionFailure("Could not prepare isolated load-failure fixture: \(error)") }
+            #endif
         }
         #else
         let reminderDefaults = UserDefaults.standard
-        let saveDirectory = directory ?? base.appendingPathComponent(saveFolder, isDirectory: true)
         #endif
         repository = FileSaveRepository(directory: saveDirectory)
+        #if os(macOS)
+        habitStudyLog = HabitStudyLog(directory: saveDirectory)
+        #else
         habitStudyLog = HabitStudyLog(directory: directory)
+        #endif
         sharedHomeNoticeDefaults = reminderDefaults
         adoptionReminders = GameAdoptionReminderCenter(defaults: reminderDefaults)
         onboarding = GameOnboardingCenter(defaults: reminderDefaults)
@@ -224,6 +229,17 @@ final class GameStore {
         adoptionReminders = GameAdoptionReminderCenter(defaults: defaults)
         onboarding = GameOnboardingCenter(defaults: defaults)
         habitStudyMode = defaults.bool(forKey: "catlife.habits.studyMode.v1")
+    }
+
+    /// Read the same repository the store will load; no path assumptions in platform UI.
+    var saveDirectory: URL? { (repository as? FileSaveRepository)?.directory }
+    var hasSavedProgress: Bool {
+        #if DEBUG && os(macOS)
+        if uiTestResetDirectory != nil { return false }
+        #endif
+        guard let files = repository as? FileSaveRepository else { return false }
+        return FileManager.default.fileExists(atPath: files.saveURL.path)
+            || FileManager.default.fileExists(atPath: files.backupURL.path)
     }
 
     var cat: CatState? { snapshot?.activeCat }
@@ -768,6 +784,13 @@ final class GameStore {
         let loadDisposition: SaveLoadDisposition
         do {
             #if DEBUG
+            #if os(macOS)
+            if let directory = uiTestResetDirectory {
+                uiTestResetDirectory = nil
+                try MacSaveDirectoryLock.clearUITestFiles(in: directory)
+                try fixtures.seedLoadFailureFiles(in: directory)
+            }
+            #endif
             if let fixture = fixtures.initialSnapshot {
                 try await repository.save(fixture)
                 fixtures.initialSnapshot = nil

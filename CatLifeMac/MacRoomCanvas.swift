@@ -89,8 +89,12 @@ final class MacRoomSKView: SKView {
     override func mouseUp(with event: NSEvent) {
         guard inputEnabled, !ignoresMouseUp, let roomScene else { return }
         let point = point(event)
-        if roomScene.editing || pointerMoved { roomScene.endPointer(at: point); return }
-        // Wait for the native double-click interval before opening a modal cat profile.
+        if roomScene.editing || pointerMoved
+            || catID(hit: roomScene.roomPresentation.hit(screen: point, editing: false), scene: roomScene) == nil {
+            roomScene.endPointer(at: point)
+            return
+        }
+        // Only a cat profile competes with double-click; other targets respond immediately.
         pendingClick = Task { @MainActor [weak self, weak roomScene] in
             do { try await Task.sleep(for: .seconds(NSEvent.doubleClickInterval)) } catch { return }
             guard let self, let roomScene, self.inputEnabled, self.roomScene === roomScene, !Task.isCancelled else { return }

@@ -2,6 +2,11 @@ import Foundation
 
 extension GameStrings {
     static let macContent69Chinese: [String: String] = [
+        "mac.save.lockedTitle": "游戏已在运行",
+        "mac.save.lockedDetail": "已有一个游戏版本正在运行。请先退出已打开的版本，再重新启动。你的进度未更改。",
+        "mac.save.accessTitle": "暂时无法访问存档目录",
+        "mac.save.accessDetail": "游戏没有载入或更改进度。请检查磁盘、可用空间或文件权限，然后重新打开游戏。",
+
         "mac.work.rewardUpTo": "预计最多 +%d 金币",
         "mac.town.mouseHint": "点击查看 · 双击进入 · 拖动平移 · 滚轮缩放",
         "mac.town.placeHint": "点击查看，双击进入",
@@ -30,6 +35,11 @@ extension GameStrings {
     ]
 
     static let macContent69TraditionalChinese: [String: String] = [
+        "mac.save.lockedTitle": "遊戲已在執行",
+        "mac.save.lockedDetail": "已有一個遊戲版本正在執行。請先結束已開啟的版本，再重新啟動。你的進度未更改。",
+        "mac.save.accessTitle": "暫時無法存取存檔目錄",
+        "mac.save.accessDetail": "遊戲沒有載入或更改進度。請檢查磁碟、可用空間或檔案權限，再重新開啟遊戲。",
+
         "mac.work.rewardUpTo": "預計最多 +%d 金幣",
         "mac.town.mouseHint": "點按查看 · 按兩下進入 · 拖曳平移 · 滾輪縮放",
         "mac.town.placeHint": "點按查看，按兩下進入",
@@ -58,6 +68,11 @@ extension GameStrings {
     ]
 
     static let macContent69English: [String: String] = [
+        "mac.save.lockedTitle": "The game is already running",
+        "mac.save.lockedDetail": "Another copy of the game is already running. Quit that copy, then launch again. Your progress has not been changed.",
+        "mac.save.accessTitle": "The save folder is unavailable",
+        "mac.save.accessDetail": "No progress has been loaded or changed. Check the disk, available space or file permissions, then reopen the game.",
+
         "mac.work.rewardUpTo": "Up to +%d coins",
         "mac.town.mouseHint": "Click to inspect · Double-click to enter · Drag to pan · Scroll to zoom",
         "mac.town.placeHint": "Click to inspect; double-click to enter",

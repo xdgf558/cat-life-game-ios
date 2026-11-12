@@ -19,7 +19,8 @@ struct MacKeyBinding: Codable, Hashable, Sendable {
             && (key.count == 1 || ["left", "right", "up", "down", "return", "escape", "delete", "tab", "space"].contains(key))
     }
     var isReserved: Bool {
-        modifiers.contains(.command) && ["q", "w", "h", "m", ","].contains(key)
+        ((modifiers.isEmpty || modifiers == .shift) && ["tab", "space", "return"].contains(key))
+            || modifiers.contains(.command) && ["q", "w", "h", "m", ","].contains(key)
             || modifiers == [.command, .control] && key == "f"
     }
     var label: String {
@@ -76,6 +77,12 @@ enum MacCommand: String, CaseIterable, Codable, Sendable {
         case .returnHome: .town
         }
     }
+    var acceptsKeyRepeat: Bool {
+        switch self {
+        case .nudgeLeft, .nudgeRight, .nudgeUp, .nudgeDown, .listUp, .listDown: true
+        default: false
+        }
+    }
     var defaultBinding: MacKeyBinding {
         switch self {
         case .home: .init(key: "1")
@@ -90,10 +97,10 @@ enum MacCommand: String, CaseIterable, Codable, Sendable {
         case .feed: .init(key: "f")
         case .clean: .init(key: "c")
         case .play: .init(key: "p")
-        case .nextCat: .init(key: "tab")
+        case .nextCat: .init(key: "tab", modifiers: .option)
         case .viewLeft: .init(key: "q")
         case .viewRight: .init(key: "e")
-        case .focusCat: .init(key: "space")
+        case .focusCat: .init(key: "space", modifiers: .option)
         case .catProfile: .init(key: "i")
         case .decorate: .init(key: "b")
         case .rotateLeft: .init(key: "r", modifiers: .shift)
@@ -104,12 +111,12 @@ enum MacCommand: String, CaseIterable, Codable, Sendable {
         case .nudgeDown: .init(key: "down")
         case .grid: .init(key: "g")
         case .putAway: .init(key: "delete")
-        case .confirm: .init(key: "return")
+        case .confirm: .init(key: "return", modifiers: .command)
         case .undo: .init(key: "z", modifiers: .command)
         case .redo: .init(key: "z", modifiers: [.command, .shift])
         case .save: .init(key: "s", modifiers: .command)
-        case .listUp: .init(key: "up")
-        case .listDown: .init(key: "down")
+        case .listUp: .init(key: "up", modifiers: .option)
+        case .listDown: .init(key: "down", modifiers: .option)
         case .previousPage: .init(key: "[")
         case .nextPage: .init(key: "]")
         case .search: .init(key: "f", modifiers: .command)
@@ -143,9 +150,27 @@ final class MacKeyboardRouter {
         }
         guard !(window.firstResponder is NSTextView), !(window.firstResponder is NSTextField),
               let pressed = MacKeyBinding(event: event) else { return event }
+        let nativeNavigation = Self.yieldsToNativeNavigation(pressed, canvasFocused: window.firstResponder is MacRoomSKView,
+                                                              controlFocused: window.firstResponder is NSControl)
+        return dispatch(pressed, isRepeat: event.isARepeat, nativeNavigation: nativeNavigation) ? nil : event
+    }
+    static func yieldsToNativeNavigation(_ binding: MacKeyBinding, canvasFocused: Bool, controlFocused: Bool) -> Bool {
+        if (binding.modifiers.isEmpty || binding.modifiers == .shift), binding.key == "tab" { return true }
+        guard binding.modifiers.isEmpty else { return false }
+        if ["space", "left", "right", "up", "down"].contains(binding.key) { return !canvasFocused }
+        return binding.key == "return" && controlFocused
+    }
+    @discardableResult
+    func dispatch(_ pressed: MacKeyBinding, isRepeat: Bool, nativeNavigation: Bool = false) -> Bool {
         let matches = MacCommand.allCases.filter { preferences.binding(for: $0) == pressed }
-        for command in matches where handler(command) { return nil }
-        return event
+        // Repeats must not fall through and repeatedly activate a focused native button.
+        if isRepeat, ["return", "space"].contains(pressed.key) { return true }
+        if isRepeat, !matches.isEmpty, matches.allSatisfy({ !$0.acceptsKeyRepeat }) { return true }
+        guard !nativeNavigation else { return false }
+        for command in matches where !isRepeat || command.acceptsKeyRepeat {
+            if handler(command) { return true }
+        }
+        return isRepeat && !matches.isEmpty
     }
 }
 

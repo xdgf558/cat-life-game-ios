@@ -14,6 +14,10 @@ struct MacTitleView: View {
     let onLoad: () -> Void
     let onSettings: () -> Void
     let onQuit: () -> Void
+    private var newGameButton: some View {
+        Button(action: onNew) { Label(GameStrings.text("mac.title.new"), systemImage: "plus.circle.fill").frame(maxWidth: .infinity) }
+            .buttonStyle(hadSave ? AnyMacButtonStyle.soft : .primary).accessibilityIdentifier("macNewGame")
+    }
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 28) {
@@ -38,9 +42,9 @@ struct MacTitleView: View {
                                     Text(GameStrings.format("mac.title.summary", store.snapshot?.player.level ?? 1, store.snapshot?.cats.count ?? 0)).font(.caption)
                                     if let date = store.snapshot?.meta.lastSyncAt { Text(date, format: .dateTime.year().month().day().hour().minute()).font(.caption2) }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
-                            }.buttonStyle(MintButtonStyle()).accessibilityIdentifier("macContinue")
+                            }.buttonStyle(MintButtonStyle()).keyboardShortcut(.defaultAction).accessibilityIdentifier("macContinue")
                         }
-                        Button(action: onNew) { Label(GameStrings.text("mac.title.new"), systemImage: "plus.circle.fill").frame(maxWidth: .infinity) }.buttonStyle(hadSave ? AnyMacButtonStyle.soft : .primary).accessibilityIdentifier("macNewGame")
+                        if hadSave { newGameButton } else { newGameButton.keyboardShortcut(.defaultAction) }
                         HStack(spacing: 12) {
                             Button(action: onLoad) { Label(GameStrings.text("mac.title.load"), systemImage: "folder.fill") }.buttonStyle(SoftButtonStyle())
                             Button(action: onSettings) { Label(GameStrings.text("mac.page.settings"), systemImage: "gearshape.fill") }.buttonStyle(SoftButtonStyle())

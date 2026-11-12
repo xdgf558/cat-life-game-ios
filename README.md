@@ -111,7 +111,11 @@ Mac UI 测试使用 DEBUG 专用存档、偏好与窗口恢复记录；运行前
 
 桌面界面包含标题、小家、布置、打工、商店、猫咪、猫町和设置八个页面；任务、背包、邻居、医院及备份恢复复用原生面板。支持鼠标与触控板操作、可修改快捷键和窗口设置。
 
-Mac 目标为 `CatLifeMac`，Bundle ID 为 `com.stationcat.catlife.mac`，进度位于 `~/Library/Application Support/CatLifeMac/`，与 iOS 的 `com.stationcat.catlife.native` 及其存档目录独立。两端不会自动同步进度，可由玩家使用原生备份转移。
+Mac 目标为 `CatLifeMac`，Bundle ID 为 `com.stationcat.catlife.mac`，Release 进度位于 `~/Library/Application Support/CatLifeMac/`；Debug 使用独立的 `CatLifeMac-Development/`，UI 测试使用 `CatLifeMac-UITests/`。与 iOS 的 `com.stationcat.catlife.native` 及其存档目录独立。两端不会自动同步进度，可由玩家使用原生备份转移。
+
+启动会检查已有游戏实例并锁定实际存档目录，避免本版本的多份 App 同时写入。手动验收前请先退出旧试玩包。
+
+Tab、空格和 Return 保留系统焦点操作；游戏确认默认用 ⌘Return，Option+Tab 切换猫咪，Option+空格切换近看，Option+↑/↓ 选择列表。普通方向键只在房间画布聚焦时微调家具；只有微调与列表移动接受长按重复。
 
 本版尚未接入 Steam，界面显示“未连接 Steam”。Steam 云存档、账号和冲突处理待后续配置，不把本地保存显示成云端同步成功。
 
