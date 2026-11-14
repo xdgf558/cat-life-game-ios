@@ -28,7 +28,7 @@ extension GameStrings {
         "releases.64.body": "首頁資訊整理為兩行，房間放進獨立舞台，視角與近看入口集中在底部。餵食、清潔和玩耍常駐舞台下方，需求氣泡貼近陪伴貓，照顧與切換更順手。保留原有玩法數值、家具布局及存檔。"
     ]
     static let homeHUD63English: [String: String] = [
-        "home63.switchSummary": "%d cats · Tap a cat or here to switch",
+        "home63.switchSummary": "Cats: %d · Tap a cat or here to switch",
         "home63.switchShort": "Tap a cat to switch",
         "home63.profileAction": "Profile",
         "home63.closeCat": "Close up: %@",

@@ -1,5 +1,7 @@
 extension GameStrings {
     static let traditionalChinese: [String: String] = [
+        "releases.69.title": "正式版推出",
+        "releases.69.body": "和貓咪一起生活、工作，佈置溫暖的小家。遊戲進度儲存在本機，可在設定中匯入或匯出備份。",
         "community.neighborHome": "%@的家",
         "community.visitsShort": "拜訪",
         "community.dailyHintShort": "每日首次拜訪好感 +%d · 每位鄰居每天收 %d 份禮物",
@@ -200,10 +202,9 @@ extension GameStrings {
         "saveTransfer.error.readableTitle": "存檔已可讀取",
         "saveTransfer.currentSaveReadable": "目前存檔已能正常讀取，為保留現有進度，本次還原已停止。請返回並重試讀取。",
         "saveTransfer.retryRead": "返回並重試讀取",
-        "saveTransfer.updateTestFlight": "先到 TestFlight 更新",
-        "saveTransfer.updateUnavailable": "暫時無法開啟 TestFlight",
-        "saveTransfer.updateManual": "請安裝並開啟 TestFlight，在「打工養貓日記」中選擇可用更新。目前進度未變更。",
-        "saveTransfer.updateHelp": "查看 TestFlight 使用說明",
+        "saveTransfer.updateAppStore": "前往 App Store 更新",
+        "saveTransfer.updateUnavailable": "暫時無法開啟 App Store",
+        "saveTransfer.updateManual": "請開啟 App Store，搜尋「打工養貓日記」並安裝可用更新。目前進度未變更。",
         "saveTransfer.settingsGroup": "存檔",
         "saveTransfer.savedAt": "已自動儲存 · %@",
         "saveTransfer.oneRecovery": "有 1 個還原點",

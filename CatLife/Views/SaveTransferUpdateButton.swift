@@ -6,9 +6,9 @@ struct SaveTransferUpdateButton: View {
 
     var body: some View {
         Button {
-            openURL(URL(string: "itms-beta://")!) { accepted in cannotOpen = !accepted }
+            openURL(URL(string: "https://apps.apple.com/app/id6830428076")!) { accepted in cannotOpen = !accepted }
         } label: {
-            Label(GameStrings.text("saveTransfer.updateTestFlight"), systemImage: "arrow.down.app.fill")
+            Label(GameStrings.text("saveTransfer.updateAppStore"), systemImage: "arrow.down.app.fill")
                 .font(.headline).frame(maxWidth: .infinity, minHeight: 44)
                 .padding(.horizontal, 16).padding(.vertical, 8)
                 .foregroundStyle(.white)
@@ -17,9 +17,6 @@ struct SaveTransferUpdateButton: View {
         }
         .buttonStyle(.plain)
         .alert(GameStrings.text("saveTransfer.updateUnavailable"), isPresented: $cannotOpen) {
-            Button(GameStrings.text("saveTransfer.updateHelp")) {
-                openURL(URL(string: "https://testflight.apple.com/")!)
-            }
             Button(GameStrings.text("common.close"), role: .cancel) {}
         } message: {
             Text(GameStrings.text("saveTransfer.updateManual"))
