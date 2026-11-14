@@ -78,9 +78,13 @@ final class GameStore {
     var showsPlayChoices = false
     var isShowingPlayTogether = false
     var playTogetherSessionID: String?
+    #if DEBUG
     var habitStudyMode = false {
         didSet { sharedHomeNoticeDefaults.set(habitStudyMode, forKey: "catlife.habits.studyMode.v1") }
     }
+    #else
+    var habitStudyMode: Bool { false }
+    #endif
     var habitStudyError = false
     @ObservationIgnored let habitStudyLog: HabitStudyLog
     @ObservationIgnored var pendingCatPlayEnd: PendingCatPlayEnd?
@@ -208,7 +212,9 @@ final class GameStore {
         sharedHomeNoticeDefaults = reminderDefaults
         adoptionReminders = GameAdoptionReminderCenter(defaults: reminderDefaults)
         onboarding = GameOnboardingCenter(defaults: reminderDefaults)
+        #if DEBUG
         habitStudyMode = reminderDefaults.bool(forKey: "catlife.habits.studyMode.v1")
+        #endif
     }
 
     init(repository: any GameSaveRepository, reminderDefaults: UserDefaults? = nil, studyLog: HabitStudyLog = HabitStudyLog()) {
@@ -218,7 +224,9 @@ final class GameStore {
         sharedHomeNoticeDefaults = defaults
         adoptionReminders = GameAdoptionReminderCenter(defaults: defaults)
         onboarding = GameOnboardingCenter(defaults: defaults)
+        #if DEBUG
         habitStudyMode = defaults.bool(forKey: "catlife.habits.studyMode.v1")
+        #endif
     }
 
     var cat: CatState? { snapshot?.activeCat }

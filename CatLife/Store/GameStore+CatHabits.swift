@@ -128,6 +128,7 @@ extension GameStore {
 
     func recordHabitStudy(_ event: String, catID: String, sessionID: String? = nil, detail: String? = nil,
                           control: String? = nil, duration: Double? = nil) {
+        #if DEBUG
         guard habitStudyMode, CatHabitCatalog.definition(for: catID) != nil else { return }
         let first = !recordedFirstHabitAction && ["playOpened", "restStarted", "cornerSelected"].contains(event)
         if first { recordedFirstHabitAction = true }
@@ -141,9 +142,11 @@ extension GameStore {
                     detail: detail, control: control, duration: duration))
             } catch { habitStudyError = true }
         }
+        #endif
     }
 
     func recordHabitCommit(from previous: GameSnapshot, to current: GameSnapshot) {
+        #if DEBUG
         guard habitStudyMode else { return }
         if current.inventory.toys > previous.inventory.toys {
             recordHabitStudy("toysPurchased", catID: current.activeCatID,
@@ -180,5 +183,6 @@ extension GameStore {
                 recordHabitStudy("memory", catID: cat.id, detail: memory.id)
             }
         }
+        #endif
     }
 }

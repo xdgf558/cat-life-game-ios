@@ -1,5 +1,7 @@
 extension GameStrings {
     static let english: [String: String] = [
+        "releases.69.title": "Official release",
+        "releases.69.body": "Live and work alongside your cats and furnish a cozy home. Your progress stays on this device; import or export backups in Settings.",
         "community.neighborHome": "%@’s home",
         "community.visitsShort": "visits",
         "community.dailyHintShort": "First daily visit +%d friendship · %d gift per neighbor daily",
@@ -200,10 +202,9 @@ extension GameStrings {
         "saveTransfer.error.readableTitle": "Your save can now be read",
         "saveTransfer.currentSaveReadable": "Your current save is readable again. Restoration has stopped to keep that progress. Return and try reading it again.",
         "saveTransfer.retryRead": "Return and retry reading",
-        "saveTransfer.updateTestFlight": "Update in TestFlight",
-        "saveTransfer.updateUnavailable": "TestFlight could not be opened",
-        "saveTransfer.updateManual": "Install and open TestFlight, then choose an available update for Cat Life Diary. Your current progress has not changed.",
-        "saveTransfer.updateHelp": "TestFlight help",
+        "saveTransfer.updateAppStore": "Update in the App Store",
+        "saveTransfer.updateUnavailable": "The App Store could not be opened",
+        "saveTransfer.updateManual": "Open the App Store, search for Cat Life Diary, and install an available update. Your current progress has not changed.",
         "saveTransfer.settingsGroup": "Saved progress",
         "saveTransfer.savedAt": "Saved automatically · %@",
         "saveTransfer.oneRecovery": "1 recovery point",

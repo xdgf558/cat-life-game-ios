@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+#if DEBUG
 @MainActor
 struct HabitStudySettingsView: View {
     @Bindable var store: GameStore
@@ -58,6 +59,7 @@ struct HabitStudyDocument: FileDocument {
     }
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
 }
+#endif
 
 @MainActor
 struct HabitIntroBanner: View {
