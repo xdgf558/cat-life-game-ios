@@ -814,7 +814,6 @@ final class DiaryAppStore {
                             self.pendingOrderDeliveries.removeAll { $0.orderID == delivery.orderID }
                             self.commitSavedOrderDelivery(
                                 delivery: delivery,
-                                deliveredOrder: deliveredOrder,
                                 baseState: baseState,
                                 candidateEngine: candidateEngine,
                                 commitEvents: out.events,
@@ -822,6 +821,11 @@ final class DiaryAppStore {
                                 gift: gift,
                                 replacement: replacement,
                                 saveNowMs: saveNowMs
+                            )
+                            await self.presentPersistedWageOfferIfEligible(
+                                for: deliveredOrder,
+                                generation: generation,
+                                floorNowMs: saveNowMs
                             )
                         } else {
                             self.pendingOrderDeliveries.removeAll { $0.orderID == delivery.orderID }
@@ -890,7 +894,6 @@ final class DiaryAppStore {
 
     private func commitSavedOrderDelivery(
         delivery: PendingOrderDelivery,
-        deliveredOrder: CustomerOrder,
         baseState: DiaryGameState,
         candidateEngine: DiaryGameEngine,
         commitEvents: [DiaryGameEvent],
@@ -907,7 +910,13 @@ final class DiaryAppStore {
             let currentAdConfig = self.engine.adConfig
             self.engine = candidateEngine
             self.engine.adConfig = currentAdConfig
-            self.syncStateAndApply(events: commitEvents, save: false)
+            let dayOut = self.engine.refreshDay(now: commitNowMs)
+            if dayOut.didMutate {
+                self.syncStateAndApply(events: commitEvents + dayOut.events, save: false)
+                self.saveNeedsWrite = true
+            } else {
+                self.syncStateAndApply(events: commitEvents, save: false)
+            }
         } else {
             let liveOut = self.engine.deliverOrder(
                 orderID: delivery.orderID,
@@ -930,22 +939,67 @@ final class DiaryAppStore {
         if let finalGift {
             self.notices.show(GameStrings.format("order.customerGift", GameStrings.furnitureName(finalGift)))
         }
-        if self.mockAdsEnabled,
-           self.activeAdOffer == nil,
-           self.pendingAdCompletions.isEmpty,
-           self.adService.isReady(slot: .wage),
-           let bonus = DiaryAds.wageOffer(
-               self.engine.state,
-               order: deliveredOrder,
-               config: self.engine.adConfig,
-               now: commitNowMs,
-               balance: self.engine.balance
-           ),
-           self.engine.offerStillAllowed(.wage(bonus), now: commitNowMs) {
-            let shownOut = self.engine.offerShown(.wage(bonus), now: commitNowMs)
-            self.syncStateAndApply(events: shownOut.events, save: false)
+    }
+
+    private func presentPersistedWageOfferIfEligible(
+        for deliveredOrder: CustomerOrder,
+        generation: Int,
+        floorNowMs: Int64
+    ) async {
+        var attempts = 0
+        while attempts < 2 {
+            attempts += 1
+            guard self.stateGeneration == generation,
+                  self.mockAdsEnabled,
+                  self.activeAdOffer == nil,
+                  self.pendingAdCompletions.isEmpty,
+                  self.adService.isReady(slot: .wage) else {
+                return
+            }
+            let offerNowMs = max(floorNowMs, max(self.state.updatedAt, self.nowMs))
+            let baseState = self.state
+            let offerEngine = self.engine.cloned()
+            _ = offerEngine.refreshDay(now: offerNowMs)
+            guard let bonus = DiaryAds.wageOffer(
+                offerEngine.state,
+                order: deliveredOrder,
+                config: offerEngine.adConfig,
+                now: offerNowMs,
+                balance: offerEngine.balance
+            ),
+            offerEngine.offerStillAllowed(.wage(bonus), now: offerNowMs) else {
+                return
+            }
+            let shownOut = offerEngine.offerShown(.wage(bonus), now: offerNowMs)
+            do {
+                try await self.repository.save(offerEngine.state, now: DayClock.date(fromEpochMs: offerNowMs))
+            } catch {
+                // Skip showing optional wage invitation if its cooldown timestamp could not be persisted.
+                return
+            }
+            guard self.stateGeneration == generation,
+                  self.mockAdsEnabled,
+                  self.activeAdOffer == nil,
+                  self.pendingAdCompletions.isEmpty else {
+                return
+            }
+            let postSaveNowMs = max(offerNowMs, max(self.state.updatedAt, self.nowMs))
+            if DayClock.elapsedMs(from: offerNowMs, to: postSaveNowMs) >= 1_000 {
+                continue
+            }
+            if self.state == baseState {
+                let currentAdConfig = self.engine.adConfig
+                self.engine = offerEngine
+                self.engine.adConfig = currentAdConfig
+                self.syncStateAndApply(events: shownOut.events, save: false)
+                self.saveNeedsWrite = false
+            } else {
+                let liveShown = self.engine.offerShown(.wage(bonus), now: postSaveNowMs)
+                self.syncStateAndApply(events: liveShown.events, save: false)
+                self.saveNeedsWrite = true
+            }
             self.activeAdOffer = .wage(bonus)
-            self.saveNeedsWrite = true
+            return
         }
     }
 

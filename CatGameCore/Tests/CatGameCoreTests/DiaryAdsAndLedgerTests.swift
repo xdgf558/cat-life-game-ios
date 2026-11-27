@@ -191,4 +191,24 @@ final class DiaryAdsAndLedgerTests: XCTestCase {
         XCTAssertEqual(engine.state.ads.used[.wage], 0)
         XCTAssertEqual(DiaryAds.remainingForSlot(engine.state, slot: .wage, config: .default), 2)
     }
+
+    func testClockRollbackByOneSecondDoesNotBypassAdCooldown() {
+        var state = readyState()
+        let ball = MergeItem(chain: .cloth, level: 3)
+        let order = CustomerOrder(id: "o40", customer: .ajian, items: [ball], wage: 10)
+        state.orders.active = [order]
+        state.ads.lastOfferAt = t0
+
+        // Rolling the system clock backward by 1 second must still enforce `.interval` cooldown!
+        let rolledBack = t0 - 1_000
+        XCTAssertEqual(DiaryAds.quotaBlock(state, slot: .material, config: .default, now: rolledBack), .interval)
+        XCTAssertEqual(DiaryAds.quotaBlock(state, slot: .wage, config: .default, now: rolledBack), .interval)
+
+        let engine = DiaryGameEngine(state: state, adConfig: .default, rng: SeededRNG(seed: 3))
+        XCTAssertNil(engine.materialOfferFor(chain: .cloth, now: rolledBack).value)
+
+        // Once 90 seconds have genuinely elapsed forward from `lastOfferAt`, offers resume.
+        let afterCooldown = t0 + AdRemoteConfig.default.minOfferIntervalMs
+        XCTAssertNil(DiaryAds.quotaBlock(state, slot: .material, config: .default, now: afterCooldown))
+    }
 }

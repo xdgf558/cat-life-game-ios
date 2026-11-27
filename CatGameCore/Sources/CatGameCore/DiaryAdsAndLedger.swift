@@ -185,7 +185,7 @@ public enum DiaryAds {
         if state.orders.completedTotal < config.newbieOrdersRequired { return .newbie }
         if remainingForSlot(state, slot: slot, config: config) <= 0 { return .limit }
         if state.ads.disabledToday.contains(slot) { return .refused }
-        if let last = state.ads.lastOfferAt, now >= last, DayClock.elapsedMs(from: last, to: now) < config.minOfferIntervalMs {
+        if let last = state.ads.lastOfferAt, DayClock.elapsedMs(from: last, to: now) < config.minOfferIntervalMs {
             return .interval
         }
         return nil
