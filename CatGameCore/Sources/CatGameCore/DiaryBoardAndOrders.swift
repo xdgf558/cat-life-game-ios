@@ -174,9 +174,9 @@ public enum DiaryBoard {
     }
 
     /// Finds the first pair of identical mergeable cells for idle visual hint.
-    public static func findMergeablePair(_ state: DiaryGameState) -> (Int, Int)? {
+    public static func findMergeablePair(_ state: DiaryGameState, excluding reservedCells: Set<Int> = []) -> (Int, Int)? {
         var seen: [MergeItem: Int] = [:]
-        for (idx, cell) in state.board.cells.enumerated() {
+        for (idx, cell) in state.board.cells.enumerated() where !reservedCells.contains(idx) {
             guard let item = cell, item.nextLevel != nil else { continue }
             if let first = seen[item] { return (first, idx) }
             seen[item] = idx
@@ -267,6 +267,7 @@ public enum DiaryOrders {
         _ state: inout DiaryGameState,
         orderID: String,
         preferredCells: [Int] = [],
+        fixedReplacement: CustomerOrder? = nil,
         rng: inout R,
         balance: DiaryBalance = .default
     ) -> DeliverOrderResult {
@@ -283,7 +284,16 @@ public enum DiaryOrders {
         let gift = advanceCustomer(&state, customer: order.customer, balance: balance)
         if state.target?.orderID == order.id { state.target = nil }
 
-        let replacement = generateOrder(&state, rng: &rng, balance: balance)
+        let replacement: CustomerOrder
+        if let fixedReplacement {
+            replacement = fixedReplacement
+            if fixedReplacement.id.hasPrefix("o"),
+               let numericID = Int(fixedReplacement.id.dropFirst()) {
+                state.orders.nextID = max(state.orders.nextID, numericID + 1)
+            }
+        } else {
+            replacement = generateOrder(&state, rng: &rng, balance: balance)
+        }
         state.orders.active[idx] = replacement
         return .delivered(order: order, wage: order.wage, gift: gift, replacement: replacement)
     }

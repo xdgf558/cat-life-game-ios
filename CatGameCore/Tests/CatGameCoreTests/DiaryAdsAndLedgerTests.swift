@@ -126,4 +126,33 @@ final class DiaryAdsAndLedgerTests: XCTestCase {
         XCTAssertEqual(DiaryAds.materialGap(mixedState, target: ball, order: mixedOrder), 0)
         XCTAssertEqual(DiaryAds.materialGap(mixedState, target: wand, order: mixedOrder), 8)
     }
+
+    func testMaterialOfferIgnoresReservedBoardCellsAndExcludedPendingOrders() {
+        var state = readyState()
+        let ball = MergeItem(chain: .cloth, level: 3) // 4 units
+        let wand = MergeItem(chain: .cloth, level: 4) // 8 units
+        let pendingOrder = CustomerOrder(id: "o30", customer: .ajian, items: [ball], wage: 10)
+        let activeOrder = CustomerOrder(id: "o31", customer: .grandma, items: [wand], wage: 20)
+        state.orders.active = [pendingOrder, activeOrder]
+        // Cell 0 holds `ball`, which is already reserved for `pendingOrder` ("o30").
+        state.board.cells[0] = ball
+
+        XCTAssertEqual(
+            DiaryAds.materialGap(state, target: wand, order: activeOrder, reservedCells: [0]),
+            8,
+            "Reserved cell 0 must not reduce the material gap of another order"
+        )
+
+        let engine = DiaryGameEngine(state: state, adConfig: .default, rng: SeededRNG(seed: 7))
+        let out = engine.materialOfferFor(
+            chain: .cloth,
+            now: t0,
+            reservedCells: [0],
+            excludedOrderIDs: ["o30"]
+        )
+        guard let offer = out.value else { return XCTFail("Expected material offer for o31") }
+        XCTAssertEqual(offer.orderID, "o31")
+        XCTAssertEqual(offer.target, wand)
+        XCTAssertEqual(offer.count, 8)
+    }
 }

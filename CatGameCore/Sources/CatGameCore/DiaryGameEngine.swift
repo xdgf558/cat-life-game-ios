@@ -147,6 +147,7 @@ public final class DiaryGameEngine {
     public func deliverOrder(
         orderID: String,
         preferredCells: [Int] = [],
+        fixedReplacement: CustomerOrder? = nil,
         now: Int64
     ) -> EngineCommandOutput<(result: DeliverOrderResult, bonusOffer: WageOffer?)> {
         run(now: now) { events in
@@ -154,6 +155,7 @@ public final class DiaryGameEngine {
                 &state,
                 orderID: orderID,
                 preferredCells: preferredCells,
+                fixedReplacement: fixedReplacement,
                 rng: &rng,
                 balance: balance
             )
@@ -296,16 +298,32 @@ public final class DiaryGameEngine {
     public func materialOfferFor(
         chain: MergeChain,
         now: Int64,
+        reservedCells: Set<Int> = [],
+        excludedOrderIDs: Set<String> = [],
         canShow: (MaterialOffer) -> Bool = { _ in true }
     ) -> EngineCommandOutput<MaterialOffer?> {
         run(now: now) { _ in
             let current = state.target
             if let current, current.item.chain == chain,
-               let offer = DiaryAds.materialOffer(state, config: adConfig, now: now, balance: balance),
+               let offer = DiaryAds.materialOffer(
+                   state,
+                   config: adConfig,
+                   now: now,
+                   balance: balance,
+                   reservedCells: reservedCells,
+                   excludedOrderIDs: excludedOrderIDs
+               ),
                canShow(offer) {
                 return offer
             }
-            guard let auto = DiaryAds.autoMaterialTarget(state, chain: chain, config: adConfig, balance: balance) else {
+            guard let auto = DiaryAds.autoMaterialTarget(
+                state,
+                chain: chain,
+                config: adConfig,
+                balance: balance,
+                reservedCells: reservedCells,
+                excludedOrderIDs: excludedOrderIDs
+            ) else {
                 return nil
             }
             if let current, current.item == auto.item && current.orderID == auto.orderID {
@@ -313,7 +331,14 @@ public final class DiaryGameEngine {
             }
             let prevTargetID = state.nextTargetID
             DiaryOrders.setTarget(&state, item: auto.item, orderID: auto.orderID)
-            if let offer = DiaryAds.materialOffer(state, config: adConfig, now: now, balance: balance),
+            if let offer = DiaryAds.materialOffer(
+                state,
+                config: adConfig,
+                now: now,
+                balance: balance,
+                reservedCells: reservedCells,
+                excludedOrderIDs: excludedOrderIDs
+            ),
                canShow(offer) {
                 return offer
             }

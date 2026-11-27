@@ -205,8 +205,17 @@ public enum DiaryAds {
         state.ads.refusals[slot] = 0
     }
 
-    public static func materialGap(_ state: DiaryGameState, target: MergeItem, order: CustomerOrder? = nil) -> Int {
-        var available = state.board.cells.compactMap({ $0 }) + state.board.pending
+    public static func materialGap(
+        _ state: DiaryGameState,
+        target: MergeItem,
+        order: CustomerOrder? = nil,
+        reservedCells: Set<Int> = []
+    ) -> Int {
+        var available: [MergeItem] = []
+        for (idx, cell) in state.board.cells.enumerated() where !reservedCells.contains(idx) {
+            if let item = cell { available.append(item) }
+        }
+        available.append(contentsOf: state.board.pending)
         if let order {
             // Reserve exact copies already fulfilling slots in this order so duplicate or
             // same-chain items don't hide the gap for remaining unsatisfied slots.
@@ -237,9 +246,12 @@ public enum DiaryAds {
         _ state: DiaryGameState,
         config: AdRemoteConfig,
         now: Int64,
-        balance: DiaryBalance = .default
+        balance: DiaryBalance = .default,
+        reservedCells: Set<Int> = [],
+        excludedOrderIDs: Set<String> = []
     ) -> MaterialOffer? {
         guard let target = state.target else { return nil }
+        if let orderID = target.orderID, excludedOrderIDs.contains(orderID) { return nil }
         let chain = target.item.chain
         guard DiaryProgression.chainUnlocked(state, chain: chain, balance: balance) else { return nil }
         if state.ads.offeredTargetIDs.contains(target.id) { return nil }
@@ -249,7 +261,7 @@ public enum DiaryAds {
         }
         if DiaryLedger.isClaimed(state, key: "material:target:\(target.id)") { return nil }
         let activeOrder = target.orderID.flatMap { id in state.orders.active.first(where: { $0.id == id }) }
-        let gap = materialGap(state, target: target.item, order: activeOrder)
+        let gap = materialGap(state, target: target.item, order: activeOrder, reservedCells: reservedCells)
         guard gap > 0 && gap <= config.materialMaxCount else { return nil }
         var energyCopy = state
         let energy = DiaryEnergy.settle(&energyCopy, now: now, balance: balance)
@@ -273,14 +285,16 @@ public enum DiaryAds {
         _ state: DiaryGameState,
         chain: MergeChain,
         config: AdRemoteConfig,
-        balance: DiaryBalance = .default
+        balance: DiaryBalance = .default,
+        reservedCells: Set<Int> = [],
+        excludedOrderIDs: Set<String> = []
     ) -> (item: MergeItem, orderID: String)? {
         guard DiaryProgression.chainUnlocked(state, chain: chain, balance: balance) else { return nil }
         var best: (item: MergeItem, orderID: String, gap: Int)? = nil
-        for order in state.orders.active {
+        for order in state.orders.active where !excludedOrderIDs.contains(order.id) {
             if state.ads.offeredMaterialKeys.contains(materialOrderKey(orderID: order.id, chain: chain)) { continue }
             for item in order.items where item.chain == chain {
-                let gap = materialGap(state, target: item, order: order)
+                let gap = materialGap(state, target: item, order: order, reservedCells: reservedCells)
                 guard gap >= 1 && gap <= config.materialMaxCount else { continue }
                 if best == nil || gap < best!.gap {
                     best = (item, order.id, gap)

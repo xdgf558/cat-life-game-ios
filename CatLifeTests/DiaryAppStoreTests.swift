@@ -462,6 +462,184 @@ final class DiaryAppStoreTests: XCTestCase {
         XCTAssertEqual(persisted?.ads.ledger.last?.status, .granted)
     }
 
+    func testMaterialAdExcludesBoardCellsReservedByPendingOrderDelivery() async throws {
+        let now = Date(timeIntervalSince1970: 1_760_000_000)
+        let ball = MergeItem(chain: .cloth, level: 3) // 4 units
+        let wand = MergeItem(chain: .cloth, level: 4) // 8 units
+        let order1 = CustomerOrder(id: "o1", customer: .ajian, items: [ball], wage: 10)
+        let order2 = CustomerOrder(id: "o2", customer: .grandma, items: [wand], wage: 20)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(now))
+        initial.tutorialActive = false
+        initial.orders.completedTotal = 2
+        initial.energy.current = 0
+        initial.energy.updatedAt = DayClock.epochMs(now)
+        initial.orders.active = [order1, order2]
+        initial.orders.nextID = 3
+        initial.board.cells[0] = ball
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { now }
+        )
+        await store.bootstrap()
+        try await waitUntil { !store.isSaving }
+
+        // Reserve cell 0 (`ball`) for o1 while o1's save is in flight.
+        await repo.setSavePaused(true)
+        store.deliverOrder("o1")
+        try await waitUntil { await repo.inFlightSaves == 1 }
+        XCTAssertTrue(store.isCellReserved(0))
+
+        // Tapping cloth generator with 0 energy must offer all 8 cloth_1 units for o2 (`wand`),
+        // NOT 4 units by mistakenly counting o1's reserved `ball`!
+        store.tapGenerator(.cloth)
+        if case .material(let offer) = store.activeAdOffer {
+            XCTAssertEqual(offer.orderID, "o2")
+            XCTAssertEqual(offer.target, wand)
+            XCTAssertEqual(offer.count, 8)
+        } else {
+            XCTFail("Expected material ad offer for o2 with full 8-unit gap")
+        }
+
+        await repo.setSavePaused(false)
+        try await waitUntil { !store.isSaving && store.pendingOrderDeliveries.isEmpty }
+    }
+
+    func testOrderDeliveryWithConcurrentMutationKeepsIdenticalReplacementOrder() async throws {
+        let now = Date(timeIntervalSince1970: 1_760_000_000)
+        let ball = MergeItem(chain: .cloth, level: 3)
+
+        for iteration in 0..<5 {
+            let order = CustomerOrder(id: "o1", customer: .ajian, items: [ball], wage: 10)
+            var initial = DiaryGameState.fresh(now: DayClock.epochMs(now))
+            initial.tutorialActive = false
+            initial.primaryCat.level = 4 // unlock all chains & customers for wide RNG space
+            initial.orders.active = [order]
+            initial.orders.nextID = 2
+            initial.board.cells[0] = ball
+
+            let repo = FlakySaveRepository(initialState: initial)
+            let store = DiaryAppStore(
+                repository: repo,
+                adService: MockRewardedAdService(),
+                clock: { now }
+            )
+            await store.bootstrap()
+            try await waitUntil { !store.isSaving }
+            await repo.clearSavedHistory()
+
+            // Start delivering o1 and mutate unrelated state (`wishlist`) while o1's write is in flight.
+            await repo.setSavePaused(true)
+            store.deliverOrder("o1")
+            try await waitUntil { await repo.inFlightSaves == 1 }
+
+            store.toggleWishlist(.windowCushion)
+            await repo.setSavePaused(false)
+            try await waitUntil { !store.isSaving && store.pendingOrderDeliveries.isEmpty }
+
+            let history = await repo.savedHistory
+            XCTAssertGreaterThanOrEqual(history.count, 2, "Iteration \(iteration) expected initial delivery save + follow-up state save")
+            let firstSavedOrders = history[0].orders.active
+            let finalSavedOrders = history[history.count - 1].orders.active
+            XCTAssertEqual(
+                firstSavedOrders,
+                finalSavedOrders,
+                "Single order delivery must not generate two different replacement orders across concurrent saves"
+            )
+            XCTAssertEqual(store.state.orders.active, finalSavedOrders)
+            XCTAssertEqual(store.state.home.wishlist, .windowCushion)
+        }
+    }
+
+    func testDisablingMockAdsDuringPendingSaveIsNotOverwrittenOnCommit() async throws {
+        let now = Date(timeIntervalSince1970: 1_760_000_000)
+        let wand = MergeItem(chain: .cloth, level: 4)
+        let order = CustomerOrder(id: "o1", customer: .ajian, items: [wand], wage: 20)
+        let order2 = CustomerOrder(id: "o2", customer: .grandma, items: [wand], wage: 20)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(now))
+        initial.tutorialActive = false
+        initial.orders.completedTotal = 2
+        initial.energy.current = 0
+        initial.energy.updatedAt = DayClock.epochMs(now)
+        initial.orders.active = [order, order2]
+        initial.orders.nextID = 3
+        initial.board.cells[0] = wand
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { now }
+        )
+        await store.bootstrap()
+        try await waitUntil { !store.isSaving }
+
+        await repo.setSavePaused(true)
+        store.deliverOrder("o1")
+        try await waitUntil { await repo.inFlightSaves == 1 }
+
+        // User turns off mock ads in Settings while o1's save is in flight.
+        store.mockAdsEnabled = false
+
+        await repo.setSavePaused(false)
+        try await waitUntil { !store.isSaving && store.pendingOrderDeliveries.isEmpty }
+
+        XCTAssertFalse(store.mockAdsEnabled)
+        XCTAssertNil(store.activeAdOffer, "Wage ad offer must not appear after user disabled mock ads")
+
+        // Subsequent zero-energy generator tap must ALSO respect mockAdsEnabled == false!
+        store.tapGenerator(.cloth)
+        XCTAssertNil(store.activeAdOffer, "Engine adConfig.adEnabled must remain false after commit")
+    }
+
+    func testOrderCardStatusShowsRetryInsteadOfSavingAfterRetriesExhaust() async throws {
+        let now = Date(timeIntervalSince1970: 1_760_000_000)
+        let ball = MergeItem(chain: .cloth, level: 3)
+        let order = CustomerOrder(id: "o1", customer: .ajian, items: [ball], wage: 10)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(now))
+        initial.tutorialActive = false
+        initial.orders.active = [order]
+        initial.orders.nextID = 2
+        initial.board.cells[0] = ball
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { now },
+            saveRetryDelays: [.milliseconds(20), .milliseconds(30), .milliseconds(40)]
+        )
+        await store.bootstrap()
+        try await waitUntil { !store.isSaving }
+
+        await repo.setFailuresRemaining(10)
+        await repo.setSavePaused(true)
+        store.deliverOrder("o1")
+        try await waitUntil { await repo.inFlightSaves == 1 }
+
+        // While actively writing, status is `.saving`.
+        XCTAssertEqual(store.orderCardStatus(for: order), .saving)
+
+        // Unpause and let all automatic retries exhaust -> status must switch to `.retrySave`!
+        await repo.setSavePaused(false)
+        try await waitUntil(timeoutMs: 1200) {
+            let attempts = await repo.failedAttemptsSinceReset
+            return attempts >= SaveRetryState.maximumAutomaticAttempts + 1 && !store.isSaving
+        }
+        XCTAssertEqual(store.orderCardStatus(for: order), .retrySave)
+
+        // Manual retry succeeds and completes delivery.
+        await repo.setFailuresRemaining(0)
+        store.retrySaveNow()
+        try await waitUntil { store.saveError == nil && !store.isSaving && store.pendingOrderDeliveries.isEmpty }
+        XCTAssertEqual(store.state.coins, 10)
+    }
+
     private func waitUntil(timeoutMs: Int = 1000, condition: () async -> Bool) async throws {
         let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
         while ContinuousClock.now < deadline {
@@ -480,6 +658,7 @@ private actor FlakySaveRepository: GameSaveRepository {
     var lastLoadDisposition: SaveLoadDisposition = .loaded
     private var state: DiaryGameState
     private(set) var lastSavedState: DiaryGameState?
+    private(set) var savedHistory: [DiaryGameState] = []
     private var failuresRemaining = 0
     private(set) var failedAttemptsSinceReset = 0
     private var savePaused = false
@@ -488,6 +667,10 @@ private actor FlakySaveRepository: GameSaveRepository {
 
     init(initialState: DiaryGameState) {
         self.state = initialState
+    }
+
+    func clearSavedHistory() {
+        savedHistory.removeAll()
     }
 
     func setFailuresRemaining(_ count: Int) {
@@ -525,6 +708,7 @@ private actor FlakySaveRepository: GameSaveRepository {
         }
         self.state = state
         self.lastSavedState = state
+        self.savedHistory.append(state)
     }
 }
 

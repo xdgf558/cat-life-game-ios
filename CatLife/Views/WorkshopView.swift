@@ -74,7 +74,7 @@ struct WorkshopView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
                 if Date().timeIntervalSince(lastTouchAt) >= 2.5 && dragFromCell == nil {
-                    let pair = DiaryBoard.findMergeablePair(store.state)
+                    let pair = DiaryBoard.findMergeablePair(store.state, excluding: store.reservedBoardCells)
                     if hintPair?.0 != pair?.0 || hintPair?.1 != pair?.1 { hintPair = pair }
                     if !reduceMotion {
                         withAnimation(.easeInOut(duration: 0.6)) { hintPulse.toggle() }
@@ -188,16 +188,20 @@ struct WorkshopView: View {
     private var pinnedOrdersRow: some View {
         HStack(spacing: 7) {
             ForEach(store.state.orders.active) { order in
-                let pendingDelivery = store.isOrderDeliveryPending(order.id)
-                let ready = store.canDeliverOrder(order)
+                let status = store.orderCardStatus(for: order)
+                let pendingDelivery = status == .saving || status == .retrySave
+                let ready = status == .deliverable
                 let checks = store.unreservedOrderItemMatches(for: order)
                 Button {
                     noteTouch()
-                    if pendingDelivery {
-                        if !store.isSaving { store.retrySaveNow() }
-                    } else if ready {
+                    switch status {
+                    case .saving:
+                        break
+                    case .retrySave:
+                        store.retrySaveNow()
+                    case .deliverable:
                         store.deliverOrder(order.id)
-                    } else {
+                    case .incomplete:
                         store.activeSheet = .orderDetail(order)
                     }
                 } label: {
@@ -231,21 +235,29 @@ struct WorkshopView: View {
                             }
 
                             HStack(spacing: 3) {
-                                if pendingDelivery {
+                                switch status {
+                                case .saving:
                                     Text(GameStrings.text("common.saving"))
                                         .font(.system(size: 10, weight: .black, design: .rounded))
                                         .foregroundStyle(.white)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 2)
                                         .background(RoomTheme.secondary, in: Capsule())
-                                } else if ready {
+                                case .retrySave:
+                                    Text(GameStrings.text("save.retry"))
+                                        .font(.system(size: 10, weight: .black, design: .rounded))
+                                        .foregroundStyle(.white)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 2)
+                                        .background(RoomTheme.coral, in: Capsule())
+                                case .deliverable:
                                     Text(GameStrings.text("order.deliver"))
                                         .font(.system(size: 10.5, weight: .black, design: .rounded))
                                         .foregroundStyle(.white)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 2)
                                         .background(RoomTheme.mint, in: Capsule())
-                                } else {
+                                case .incomplete:
                                     Spacer(minLength: 0)
                                     AssetOrSymbol(asset: "ui_coin", symbol: "dollarsign.circle.fill", size: 12, tint: RoomTheme.gold)
                                     Text("\(order.wage)")
@@ -266,7 +278,12 @@ struct WorkshopView: View {
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke((ready || pendingDelivery) ? RoomTheme.mint : RoomTheme.wood.opacity(0.85), lineWidth: (ready || pendingDelivery) ? 1.8 : 1.1)
+                                .stroke(
+                                    status == .retrySave
+                                        ? RoomTheme.coral
+                                        : ((ready || pendingDelivery) ? RoomTheme.mint : RoomTheme.wood.opacity(0.85)),
+                                    lineWidth: (ready || pendingDelivery) ? 1.8 : 1.1
+                                )
                         )
 
                         // Tiny decorative tape tab
@@ -318,12 +335,24 @@ struct WorkshopView: View {
             Spacer(minLength: 4)
 
             if store.isCellReserved(index) {
-                Text(GameStrings.text("common.saving"))
+                if store.isSaving {
+                    Text(GameStrings.text("common.saving"))
+                        .font(.system(size: 11.5, weight: .heavy, design: .rounded))
+                        .foregroundStyle(RoomTheme.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(RoomTheme.chipBg, in: Capsule())
+                } else {
+                    Button(GameStrings.text("save.retry")) {
+                        noteTouch()
+                        store.retrySaveNow()
+                    }
                     .font(.system(size: 11.5, weight: .heavy, design: .rounded))
-                    .foregroundStyle(RoomTheme.secondary)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
-                    .background(RoomTheme.chipBg, in: Capsule())
+                    .background(RoomTheme.coral, in: Capsule())
+                }
             } else {
                 if item.isUsableAtHome {
                     Button(GameStrings.text("workshop.bringHome")) {

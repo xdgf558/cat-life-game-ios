@@ -47,6 +47,13 @@ enum ActiveSheet: Identifiable, Equatable {
     }
 }
 
+enum OrderCardStatus: Equatable {
+    case saving
+    case retrySave
+    case deliverable
+    case incomplete
+}
+
 struct PendingOrderDelivery: Equatable {
     let orderID: String
     var reservedCells: [Int]
@@ -86,7 +93,12 @@ final class DiaryAppStore {
 
     // Debug / M1 testing toggles (exposed in Settings)
     var mockAdsEnabled: Bool = true {
-        didSet { engine.adConfig.adEnabled = mockAdsEnabled }
+        didSet {
+            engine.adConfig.adEnabled = mockAdsEnabled
+            if !mockAdsEnabled {
+                activeAdOffer = nil
+            }
+        }
     }
 
     let audio = GameAudioController()
@@ -133,6 +145,13 @@ final class DiaryAppStore {
             return false
         }
         return selectUnreservedCells(for: order.items, excluding: reservedBoardCells) != nil
+    }
+
+    func orderCardStatus(for order: CustomerOrder) -> OrderCardStatus {
+        if isOrderDeliveryPending(order.id) {
+            return isSaving ? .saving : .retrySave
+        }
+        return canDeliverOrder(order) ? .deliverable : .incomplete
     }
 
     func unreservedOrderItemMatches(for order: CustomerOrder) -> [Bool] {
@@ -420,8 +439,8 @@ final class DiaryAppStore {
     }
 
     func rerollOrder(_ orderID: String) {
+        guard !(isSaving && !pendingOrderDeliveries.isEmpty) else { return }
         if isOrderDeliveryPending(orderID) {
-            guard !isSaving else { return }
             pendingOrderDeliveries.removeAll { $0.orderID == orderID }
         }
         let out = engine.rerollOrder(orderID: orderID, now: nowMs)
@@ -556,7 +575,13 @@ final class DiaryAppStore {
 
     private func tryPresentMaterialAd(for chain: MergeChain) {
         guard activeAdOffer == nil, pendingAdCompletions.isEmpty else { return }
-        let out = engine.materialOfferFor(chain: chain, now: nowMs) { [weak self] _ in
+        let pendingOrderIDs = Set(pendingOrderDeliveries.map(\.orderID))
+        let out = engine.materialOfferFor(
+            chain: chain,
+            now: nowMs,
+            reservedCells: reservedBoardCells,
+            excludedOrderIDs: pendingOrderIDs
+        ) { [weak self] _ in
             self?.adService.isReady(slot: .material) == true
         }
         guard let offer = out.value else {
@@ -782,7 +807,7 @@ final class DiaryAppStore {
                             preferredCells: delivery.reservedCells,
                             now: saveNowMs
                         )
-                        if case .delivered(_, let wage, let gift, _) = out.value.result {
+                        if case .delivered(_, let wage, let gift, let replacement) = out.value.result {
                             let eligibleBonus: WageOffer? = if let bonus = out.value.bonusOffer,
                                 self.adService.isReady(slot: .wage),
                                 candidateEngine.offerStillAllowed(.wage(bonus), now: saveNowMs),
@@ -807,6 +832,8 @@ final class DiaryAppStore {
                                 commitEvents: commitEvents,
                                 wage: wage,
                                 gift: gift,
+                                replacement: replacement,
+                                saveNowMs: saveNowMs,
                                 bonus: eligibleBonus
                             )
                         } else {
@@ -844,7 +871,9 @@ final class DiaryAppStore {
     ) {
         var granted = true
         if self.state == baseState {
+            let currentAdConfig = self.engine.adConfig
             self.engine = candidateEngine
+            self.engine.adConfig = currentAdConfig
             self.syncStateAndApply(events: commitEvents, save: false)
         } else {
             let liveOut = self.engine.finishAd(
@@ -875,31 +904,37 @@ final class DiaryAppStore {
         commitEvents: [DiaryGameEvent],
         wage: Int,
         gift: FurnitureID?,
+        replacement: CustomerOrder,
+        saveNowMs: Int64,
         bonus: WageOffer?
     ) {
         var finalWage = wage
         var finalGift = gift
-        var finalBonus = bonus
+        var finalBonus = self.mockAdsEnabled ? bonus : nil
 
         if self.state == baseState {
+            let currentAdConfig = self.engine.adConfig
             self.engine = candidateEngine
+            self.engine.adConfig = currentAdConfig
             self.syncStateAndApply(events: commitEvents, save: false)
         } else {
             let liveOut = self.engine.deliverOrder(
                 orderID: delivery.orderID,
                 preferredCells: delivery.reservedCells,
-                now: self.nowMs
+                fixedReplacement: replacement,
+                now: saveNowMs
             )
             guard case .delivered(_, let liveWage, let liveGift, _) = liveOut.value.result else { return }
             finalWage = liveWage
             finalGift = liveGift
             var liveEvents = liveOut.events
-            if let candidateBonus = liveOut.value.bonusOffer,
+            if self.mockAdsEnabled,
+               let candidateBonus = liveOut.value.bonusOffer,
                self.adService.isReady(slot: .wage),
-               self.engine.offerStillAllowed(.wage(candidateBonus), now: self.nowMs),
+               self.engine.offerStillAllowed(.wage(candidateBonus), now: saveNowMs),
                self.activeAdOffer == nil,
                self.pendingAdCompletions.isEmpty {
-                let shownOut = self.engine.offerShown(.wage(candidateBonus), now: self.nowMs)
+                let shownOut = self.engine.offerShown(.wage(candidateBonus), now: saveNowMs)
                 liveEvents.append(contentsOf: shownOut.events)
                 finalBonus = candidateBonus
             } else {
@@ -917,7 +952,7 @@ final class DiaryAppStore {
         if let finalGift {
             self.notices.show(GameStrings.format("order.customerGift", GameStrings.furnitureName(finalGift)))
         }
-        if let finalBonus, self.activeAdOffer == nil {
+        if let finalBonus, self.mockAdsEnabled, self.activeAdOffer == nil {
             self.activeAdOffer = .wage(finalBonus)
         }
     }

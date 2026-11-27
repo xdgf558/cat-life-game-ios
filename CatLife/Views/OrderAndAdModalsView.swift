@@ -9,13 +9,12 @@ struct OrderDetailSheetView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        let pendingDelivery = store.isOrderDeliveryPending(order.id)
-        let ready = store.canDeliverOrder(order)
+        let status = store.orderCardStatus(for: order)
         let checks = store.unreservedOrderItemMatches(for: order)
         let progress = store.state.orders.customerProgress[order.customer] ?? 0
         let giftEvery = DiaryBalance.default.orders.giftEveryOrders
         let canReroll = store.state.orders.rerollsUsedToday < DiaryBalance.default.orders.freeRerollsPerDay
-            && !(pendingDelivery && store.isSaving)
+            && !(store.isSaving && !store.pendingOrderDeliveries.isEmpty)
 
         NavigationStack {
             VStack(spacing: 14) {
@@ -100,13 +99,21 @@ struct OrderDetailSheetView: View {
                     .frame(maxWidth: .infinity)
                     .disabled(!canReroll)
 
-                    Button(pendingDelivery ? GameStrings.text("common.saving") : GameStrings.text("order.deliver")) {
-                        store.deliverOrder(order.id)
+                    Button(
+                        status == .saving
+                            ? GameStrings.text("common.saving")
+                            : (status == .retrySave ? GameStrings.text("save.retry") : GameStrings.text("order.deliver"))
+                    ) {
+                        if status == .retrySave {
+                            store.retrySaveNow()
+                        } else {
+                            store.deliverOrder(order.id)
+                        }
                         dismiss()
                     }
-                    .buttonStyle(WarmButtonStyle(fill: RoomTheme.mint, shadowColor: RoomTheme.darkMint))
+                    .buttonStyle(WarmButtonStyle(fill: status == .retrySave ? RoomTheme.coral : RoomTheme.mint, shadowColor: status == .retrySave ? RoomTheme.coralDeep : RoomTheme.darkMint))
                     .frame(maxWidth: .infinity)
-                    .disabled(!ready || pendingDelivery)
+                    .disabled(status == .saving || status == .incomplete)
                 }
             }
             .padding(16)
