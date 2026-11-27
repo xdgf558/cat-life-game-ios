@@ -574,7 +574,7 @@ final class DiaryAppStore {
     // MARK: - Ads
 
     private func tryPresentMaterialAd(for chain: MergeChain) {
-        guard activeAdOffer == nil, pendingAdCompletions.isEmpty else { return }
+        guard isForeground, activeAdOffer == nil, pendingAdCompletions.isEmpty else { return }
         let pendingOrderIDs = Set(pendingOrderDeliveries.map(\.orderID))
         let out = engine.materialOfferFor(
             chain: chain,
@@ -947,14 +947,17 @@ final class DiaryAppStore {
         floorNowMs: Int64
     ) async {
         var attempts = 0
+        var wroteUnshownOfferToDisk = false
+
         while attempts < 2 {
             attempts += 1
             guard self.stateGeneration == generation,
+                  self.isForeground,
                   self.mockAdsEnabled,
                   self.activeAdOffer == nil,
                   self.pendingAdCompletions.isEmpty,
                   self.adService.isReady(slot: .wage) else {
-                return
+                break
             }
             let offerNowMs = max(floorNowMs, max(self.state.updatedAt, self.nowMs))
             let baseState = self.state
@@ -968,20 +971,22 @@ final class DiaryAppStore {
                 balance: offerEngine.balance
             ),
             offerEngine.offerStillAllowed(.wage(bonus), now: offerNowMs) else {
-                return
+                break
             }
             let shownOut = offerEngine.offerShown(.wage(bonus), now: offerNowMs)
             do {
                 try await self.repository.save(offerEngine.state, now: DayClock.date(fromEpochMs: offerNowMs))
+                wroteUnshownOfferToDisk = true
             } catch {
                 // Skip showing optional wage invitation if its cooldown timestamp could not be persisted.
-                return
+                break
             }
             guard self.stateGeneration == generation,
+                  self.isForeground,
                   self.mockAdsEnabled,
                   self.activeAdOffer == nil,
                   self.pendingAdCompletions.isEmpty else {
-                return
+                break
             }
             let postSaveNowMs = max(offerNowMs, max(self.state.updatedAt, self.nowMs))
             if DayClock.elapsedMs(from: offerNowMs, to: postSaveNowMs) >= 1_000 {
@@ -993,13 +998,42 @@ final class DiaryAppStore {
                 self.engine.adConfig = currentAdConfig
                 self.syncStateAndApply(events: shownOut.events, save: false)
                 self.saveNeedsWrite = false
+                self.activeAdOffer = .wage(bonus)
+                return
             } else {
-                let liveShown = self.engine.offerShown(.wage(bonus), now: postSaveNowMs)
+                _ = self.engine.refreshDay(now: postSaveNowMs)
+                guard let liveBonus = DiaryAds.wageOffer(
+                    self.engine.state,
+                    order: deliveredOrder,
+                    config: self.engine.adConfig,
+                    now: postSaveNowMs,
+                    balance: self.engine.balance
+                ),
+                self.engine.offerStillAllowed(.wage(liveBonus), now: postSaveNowMs) else {
+                    break
+                }
+                let liveShown = self.engine.offerShown(.wage(liveBonus), now: postSaveNowMs)
                 self.syncStateAndApply(events: liveShown.events, save: false)
                 self.saveNeedsWrite = true
+                self.activeAdOffer = .wage(liveBonus)
+                return
             }
-            self.activeAdOffer = .wage(bonus)
+        }
+
+        if wroteUnshownOfferToDisk {
+            await self.rollbackUnshownOfferSaveIfNeeded(generation: generation)
+        }
+    }
+
+    private func rollbackUnshownOfferSaveIfNeeded(generation: Int) async {
+        guard self.stateGeneration == generation else {
+            self.saveNeedsWrite = true
             return
+        }
+        do {
+            try await self.repository.save(self.state, now: self.clock())
+        } catch {
+            self.saveNeedsWrite = true
         }
     }
 

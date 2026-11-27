@@ -926,6 +926,177 @@ final class DiaryAppStoreTests: XCTestCase {
         }
     }
 
+    func testBackgroundOrderSaveDoesNotMarkWageOfferSeenOnDiskOrShowModal() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+        let wand = MergeItem(chain: .cloth, level: 4)
+        let order1 = CustomerOrder(id: "o1", customer: .ajian, items: [wand], wage: 20)
+        let order2 = CustomerOrder(id: "o2", customer: .grandma, items: [wand], wage: 20)
+        let order3 = CustomerOrder(id: "o3", customer: .ajian, items: [wand, wand], wage: 40)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(t0))
+        initial.tutorialActive = false
+        initial.orders.completedTotal = 2
+        initial.orders.active = [order1, order2, order3]
+        initial.orders.nextID = 4
+        initial.board.cells[0] = wand
+        initial.board.cells[1] = wand
+
+        let diskRepo = DiarySaveRepository(directory: dir)
+        try await diskRepo.save(initial, now: t0)
+        let gateRepo = GatedDiskSaveRepository(backing: diskRepo)
+
+        let store = DiaryAppStore(
+            repository: gateRepo,
+            adService: MockRewardedAdService(),
+            clock: { t0 }
+        )
+        await store.bootstrap()
+        try await waitUntil { !store.isSaving }
+        store.switchScreen(to: .workshop)
+        try await waitUntil { !store.isSaving }
+
+        // Sub-case A: App goes to background BEFORE wage offer save runs.
+        await gateRepo.setPaused(true)
+        store.deliverOrder("o1")
+        try await waitUntil { await gateRepo.inFlightSaves == 1 }
+        store.setForeground(false)
+        await gateRepo.setPaused(false)
+        try await waitUntil { !store.isSaving && store.pendingOrderDeliveries.isEmpty }
+
+        XCTAssertEqual(store.state.coins, 20)
+        XCTAssertNil(store.activeAdOffer, "Background order completion must not show wage ad")
+        XCTAssertNil(store.state.ads.lastOfferAt)
+        let diskAfterA = try await DiarySaveRepository(directory: dir).loadOrCreate(now: t0)
+        XCTAssertNil(diskAfterA.ads.lastOfferAt, "Disk must not record lastOfferAt when app was backgrounded")
+
+        // Sub-case B: App goes to background DURING the wage offer save itself -> rollback disk cooldown!
+        store.setForeground(true)
+        await gateRepo.pauseOnSaveNumber(2) // let o2 delivery (save #1) pass, pause offerShown (save #2)
+        store.deliverOrder("o2")
+        try await waitUntil { await gateRepo.inFlightSaves == 1 }
+        store.setForeground(false)
+        await gateRepo.setPaused(false)
+        try await waitUntil { !store.isSaving && store.pendingOrderDeliveries.isEmpty }
+
+        XCTAssertEqual(store.state.coins, 40)
+        XCTAssertNil(store.activeAdOffer)
+        XCTAssertNil(store.state.ads.lastOfferAt)
+        let diskAfterB = try await DiarySaveRepository(directory: dir).loadOrCreate(now: t0)
+        XCTAssertNil(diskAfterB.ads.lastOfferAt, "Disk must roll back unshown wage offer cooldown when backgrounded mid-save")
+    }
+
+    func testRefusingMaterialAdDuringWageOfferSaveBlocksWagePopupAt250ms() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+        let clock = MutableTestClock(t0)
+
+        let ball = MergeItem(chain: .cloth, level: 3)
+        let wand = MergeItem(chain: .cloth, level: 4)
+        let order1 = CustomerOrder(id: "o1", customer: .ajian, items: [wand], wage: 20)
+        let order2 = CustomerOrder(id: "o2", customer: .grandma, items: [ball], wage: 10)
+        let order3 = CustomerOrder(id: "o3", customer: .ajian, items: [wand, wand], wage: 40)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(t0))
+        initial.tutorialActive = false
+        initial.orders.completedTotal = 2
+        initial.energy.current = 0
+        initial.energy.updatedAt = DayClock.epochMs(t0)
+        initial.orders.active = [order1, order2, order3]
+        initial.orders.nextID = 4
+        initial.board.cells[0] = wand
+
+        let diskRepo = DiarySaveRepository(directory: dir)
+        try await diskRepo.save(initial, now: t0)
+        let gateRepo = GatedDiskSaveRepository(backing: diskRepo)
+
+        let store = DiaryAppStore(
+            repository: gateRepo,
+            adService: MockRewardedAdService(),
+            clock: { clock.now }
+        )
+        await store.bootstrap()
+        try await waitUntil { !store.isSaving }
+
+        // Let o1 delivery save (#1) complete, pause wage offer cooldown save (#2) at t0.
+        await gateRepo.pauseOnSaveNumber(2)
+        store.deliverOrder("o1")
+        try await waitUntil { await gateRepo.inFlightSaves == 1 && store.state.coins == 20 }
+
+        // At +100ms player triggers Material Ad; at +200ms player refuses Material Ad (`activeAdOffer` becomes nil!).
+        clock.now = t0.addingTimeInterval(0.10)
+        store.tapGenerator(.cloth)
+        if case .material = store.activeAdOffer {
+            // expected
+        } else {
+            XCTFail("Expected material ad to appear while wage offer save is in flight")
+        }
+
+        clock.now = t0.addingTimeInterval(0.20)
+        store.refuseActiveAd()
+        XCTAssertNil(store.activeAdOffer)
+
+        // At +250ms wage offer save returns -> MUST re-check live cooldown and NOT pop Wage Ad!
+        clock.now = t0.addingTimeInterval(0.25)
+        await gateRepo.setPaused(false)
+        try await waitUntil { !store.isSaving && store.pendingOrderDeliveries.isEmpty }
+
+        XCTAssertNil(store.activeAdOffer, "Wage ad must not pop 250ms after refusing material ad")
+        XCTAssertEqual(store.state.ads.lastOfferAt, DayClock.epochMs(t0.addingTimeInterval(0.20)))
+        let disk = try await DiarySaveRepository(directory: dir).loadOrCreate(now: clock.now)
+        XCTAssertEqual(disk.ads.refusals[.material], 1)
+        XCTAssertEqual(disk.ads.lastOfferAt, DayClock.epochMs(t0.addingTimeInterval(0.20)))
+    }
+
+    func testTwoConsecutiveSlowWageOfferSavesDoNotLeaveStaleCooldownOnDisk() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+        let clock = MutableTestClock(t0)
+
+        let wand = MergeItem(chain: .cloth, level: 4)
+        let order1 = CustomerOrder(id: "o1", customer: .ajian, items: [wand], wage: 20)
+        let order2 = CustomerOrder(id: "o2", customer: .grandma, items: [wand], wage: 20)
+        let order3 = CustomerOrder(id: "o3", customer: .ajian, items: [wand, wand], wage: 40)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(t0))
+        initial.tutorialActive = false
+        initial.orders.completedTotal = 2
+        initial.orders.active = [order1, order2, order3]
+        initial.orders.nextID = 4
+        initial.board.cells[0] = wand
+
+        let diskRepo = DiarySaveRepository(directory: dir)
+        try await diskRepo.save(initial, now: t0)
+        let slowRepo = GatedDiskSaveRepository(backing: diskRepo)
+
+        let store = DiaryAppStore(
+            repository: slowRepo,
+            adService: MockRewardedAdService(),
+            clock: { clock.now }
+        )
+        await store.bootstrap()
+        try await waitUntil { !store.isSaving }
+
+        // Make BOTH wage-offer persistence saves (#2 and #3) advance the clock by 1.5s (>= 1s threshold).
+        await slowRepo.setClockAdvanceOnSaves([2: 1.5, 3: 1.5], clock: clock)
+        store.deliverOrder("o1")
+        try await waitUntil { !store.isSaving && store.pendingOrderDeliveries.isEmpty }
+
+        XCTAssertEqual(store.state.coins, 20)
+        XCTAssertNil(store.activeAdOffer, "Two consecutive >=1s slow offer saves should abort showing modal")
+        XCTAssertNil(store.state.ads.lastOfferAt)
+
+        // Reloading from disk must NOT contain a phantom cooldown from the aborted offer saves!
+        let disk = try await DiarySaveRepository(directory: dir).loadOrCreate(now: clock.now)
+        XCTAssertNil(disk.ads.lastOfferAt, "Aborted slow wage offer saves must roll back disk cooldown")
+    }
+
     private func waitUntil(timeoutMs: Int = 1000, condition: () async -> Bool) async throws {
         let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
         while ContinuousClock.now < deadline {
@@ -1016,6 +1187,69 @@ private final class MutableTestClock: @unchecked Sendable {
             lock.lock()
             value = newValue
             lock.unlock()
+        }
+    }
+}
+
+private actor GatedDiskSaveRepository: GameSaveRepository {
+    private let backing: DiarySaveRepository
+    private var paused = false
+    private var pauseOnSaveIndex: Int?
+    private var saveCount = 0
+    private(set) var inFlightSaves = 0
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+    private var advanceBySaveIndex: [Int: TimeInterval] = [:]
+    private var clock: MutableTestClock?
+
+    init(backing: DiarySaveRepository) {
+        self.backing = backing
+    }
+
+    var lastLoadDisposition: SaveLoadDisposition {
+        get async { await backing.lastLoadDisposition }
+    }
+
+    func setPaused(_ value: Bool) {
+        paused = value
+        pauseOnSaveIndex = nil
+        if !value {
+            let waiting = continuations
+            continuations.removeAll()
+            for c in waiting { c.resume() }
+        }
+    }
+
+    func pauseOnSaveNumber(_ index: Int) {
+        saveCount = 0
+        paused = false
+        pauseOnSaveIndex = index
+    }
+
+    func setClockAdvanceOnSaves(_ map: [Int: TimeInterval], clock: MutableTestClock) {
+        saveCount = 0
+        advanceBySaveIndex = map
+        self.clock = clock
+    }
+
+    func loadOrCreate(now: Date) async throws -> DiaryGameState {
+        try await backing.loadOrCreate(now: now)
+    }
+
+    func save(_ state: DiaryGameState, now: Date) async throws {
+        saveCount += 1
+        let currentIndex = saveCount
+        inFlightSaves += 1
+        defer { inFlightSaves -= 1 }
+
+        if paused || pauseOnSaveIndex == currentIndex {
+            pauseOnSaveIndex = nil
+            await withCheckedContinuation { continuation in
+                continuations.append(continuation)
+            }
+        }
+        try await backing.save(state, now: now)
+        if let delta = advanceBySaveIndex[currentIndex], let clock {
+            clock.now = clock.now.addingTimeInterval(delta)
         }
     }
 }
