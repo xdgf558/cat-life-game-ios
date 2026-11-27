@@ -188,11 +188,14 @@ struct WorkshopView: View {
     private var pinnedOrdersRow: some View {
         HStack(spacing: 7) {
             ForEach(store.state.orders.active) { order in
-                let ready = DiaryOrders.canDeliver(store.state, order: order)
-                let checks = DiaryOrders.orderItemsOnBoard(store.state, order: order)
+                let pendingDelivery = store.isOrderDeliveryPending(order.id)
+                let ready = store.canDeliverOrder(order)
+                let checks = store.unreservedOrderItemMatches(for: order)
                 Button {
                     noteTouch()
-                    if ready {
+                    if pendingDelivery {
+                        if !store.isSaving { store.retrySaveNow() }
+                    } else if ready {
                         store.deliverOrder(order.id)
                     } else {
                         store.activeSheet = .orderDetail(order)
@@ -228,7 +231,14 @@ struct WorkshopView: View {
                             }
 
                             HStack(spacing: 3) {
-                                if ready {
+                                if pendingDelivery {
+                                    Text(GameStrings.text("common.saving"))
+                                        .font(.system(size: 10, weight: .black, design: .rounded))
+                                        .foregroundStyle(.white)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 2)
+                                        .background(RoomTheme.secondary, in: Capsule())
+                                } else if ready {
                                     Text(GameStrings.text("order.deliver"))
                                         .font(.system(size: 10.5, weight: .black, design: .rounded))
                                         .foregroundStyle(.white)
@@ -251,12 +261,12 @@ struct WorkshopView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(ready ? RoomTheme.paleMint : RoomTheme.paper.opacity(0.96))
+                                .fill((ready || pendingDelivery) ? RoomTheme.paleMint : RoomTheme.paper.opacity(0.96))
                                 .shadow(color: RoomTheme.ink.opacity(0.12), radius: 4, y: 2)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(ready ? RoomTheme.mint : RoomTheme.wood.opacity(0.85), lineWidth: ready ? 1.8 : 1.1)
+                                .stroke((ready || pendingDelivery) ? RoomTheme.mint : RoomTheme.wood.opacity(0.85), lineWidth: (ready || pendingDelivery) ? 1.8 : 1.1)
                         )
 
                         // Tiny decorative tape tab
@@ -307,39 +317,48 @@ struct WorkshopView: View {
 
             Spacer(minLength: 4)
 
-            if item.isUsableAtHome {
-                Button(GameStrings.text("workshop.bringHome")) {
-                    noteTouch()
-                    store.bringHome(cellIndex: index)
-                    selectedCell = nil
-                }
-                .font(.system(size: 12, weight: .heavy, design: .rounded))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(RoomTheme.mint, in: Capsule())
-                .shadow(color: RoomTheme.darkMint.opacity(0.6), radius: 0, y: 2)
-                .accessibilityIdentifier("workshopBringHomeButton")
-            }
-
-            if !isTutorial {
-                let price = DiaryBoard.sellPrice(of: item)
-                let armed = sellArmedCell == index
-                Button(armed ? GameStrings.format("workshop.sellConfirm", price) : GameStrings.text("workshop.sell")) {
-                    noteTouch()
-                    if armed {
-                        store.sellItem(at: index)
+            if store.isCellReserved(index) {
+                Text(GameStrings.text("common.saving"))
+                    .font(.system(size: 11.5, weight: .heavy, design: .rounded))
+                    .foregroundStyle(RoomTheme.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(RoomTheme.chipBg, in: Capsule())
+            } else {
+                if item.isUsableAtHome {
+                    Button(GameStrings.text("workshop.bringHome")) {
+                        noteTouch()
+                        store.bringHome(cellIndex: index)
                         selectedCell = nil
-                        sellArmedCell = nil
-                    } else {
-                        sellArmedCell = index
                     }
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(RoomTheme.mint, in: Capsule())
+                    .shadow(color: RoomTheme.darkMint.opacity(0.6), radius: 0, y: 2)
+                    .accessibilityIdentifier("workshopBringHomeButton")
                 }
-                .font(.system(size: 11.5, weight: .heavy, design: .rounded))
-                .foregroundStyle(armed ? .white : RoomTheme.ink)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(armed ? RoomTheme.coral : RoomTheme.chipBg, in: Capsule())
+
+                if !isTutorial {
+                    let price = DiaryBoard.sellPrice(of: item)
+                    let armed = sellArmedCell == index
+                    Button(armed ? GameStrings.format("workshop.sellConfirm", price) : GameStrings.text("workshop.sell")) {
+                        noteTouch()
+                        if armed {
+                            store.sellItem(at: index)
+                            selectedCell = nil
+                            sellArmedCell = nil
+                        } else {
+                            sellArmedCell = index
+                        }
+                    }
+                    .font(.system(size: 11.5, weight: .heavy, design: .rounded))
+                    .foregroundStyle(armed ? .white : RoomTheme.ink)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(armed ? RoomTheme.coral : RoomTheme.chipBg, in: Capsule())
+                }
             }
 
             Button {
@@ -491,7 +510,7 @@ struct WorkshopView: View {
         .highPriorityGesture(
             DragGesture(minimumDistance: 6, coordinateSpace: .named("mergeBoard"))
                 .onChanged { value in
-                    guard store.state.board.cells[index] != nil else { return }
+                    guard store.state.board.cells[index] != nil, !store.isCellReserved(index) else { return }
                     noteTouch()
                     dragFromCell = index
                     selectedCell = index
@@ -504,7 +523,7 @@ struct WorkshopView: View {
                         dragHoverCell = nil
                         dragTranslation = .zero
                     }
-                    guard store.state.board.cells[index] != nil else { return }
+                    guard store.state.board.cells[index] != nil, !store.isCellReserved(index) else { return }
                     if let targetIdx = cellFrames.first(where: { $0.value.contains(value.location) })?.key,
                        targetIdx != index {
                         let result = store.moveItem(from: index, to: targetIdx)
@@ -521,7 +540,9 @@ struct WorkshopView: View {
     private func handleCellTap(_ index: Int) {
         noteTouch()
         if let selected = selectedCell, selected != index,
-           store.state.board.cells[selected] != nil {
+           store.state.board.cells[selected] != nil,
+           !store.isCellReserved(selected),
+           !store.isCellReserved(index) {
             let a = store.state.board.cells[selected]
             let b = store.state.board.cells[index]
             if b == nil || (a == b && a?.nextLevel != nil) {

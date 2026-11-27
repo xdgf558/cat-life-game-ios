@@ -209,7 +209,24 @@ public enum DayClock {
     }
 
     public static func isValidDayKey(_ key: Int) -> Bool {
-        (minValidDayKey...maxValidDayKey).contains(key)
+        guard (minValidDayKey...maxValidDayKey).contains(key) else { return false }
+        let year = key / 10_000
+        let month = (key / 100) % 100
+        let day = key % 100
+        guard (1970...9999).contains(year),
+              (1...12).contains(month),
+              (1...31).contains(day) else {
+            return false
+        }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        var comps = DateComponents()
+        comps.year = year
+        comps.month = month
+        comps.day = day
+        guard let date = cal.date(from: comps) else { return false }
+        let resolved = cal.dateComponents([.year, .month, .day], from: date)
+        return resolved.year == year && resolved.month == month && resolved.day == day
     }
 
     /// Overflow-safe non-negative elapsed milliseconds from `start` to `end`.

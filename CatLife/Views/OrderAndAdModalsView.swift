@@ -9,11 +9,13 @@ struct OrderDetailSheetView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        let ready = DiaryOrders.canDeliver(store.state, order: order)
-        let checks = DiaryOrders.orderItemsOnBoard(store.state, order: order)
+        let pendingDelivery = store.isOrderDeliveryPending(order.id)
+        let ready = store.canDeliverOrder(order)
+        let checks = store.unreservedOrderItemMatches(for: order)
         let progress = store.state.orders.customerProgress[order.customer] ?? 0
         let giftEvery = DiaryBalance.default.orders.giftEveryOrders
         let canReroll = store.state.orders.rerollsUsedToday < DiaryBalance.default.orders.freeRerollsPerDay
+            && !(pendingDelivery && store.isSaving)
 
         NavigationStack {
             VStack(spacing: 14) {
@@ -98,13 +100,13 @@ struct OrderDetailSheetView: View {
                     .frame(maxWidth: .infinity)
                     .disabled(!canReroll)
 
-                    Button(GameStrings.text("order.deliver")) {
+                    Button(pendingDelivery ? GameStrings.text("common.saving") : GameStrings.text("order.deliver")) {
                         store.deliverOrder(order.id)
                         dismiss()
                     }
                     .buttonStyle(WarmButtonStyle(fill: RoomTheme.mint, shadowColor: RoomTheme.darkMint))
                     .frame(maxWidth: .infinity)
-                    .disabled(!ready)
+                    .disabled(!ready || pendingDelivery)
                 }
             }
             .padding(16)

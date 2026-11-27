@@ -157,6 +157,22 @@ public enum DiaryBoard {
         return true
     }
 
+    @discardableResult
+    public static func takeFromBoard(
+        _ state: inout DiaryGameState,
+        item: MergeItem,
+        preferredCells: inout [Int]
+    ) -> Bool {
+        if let pos = preferredCells.firstIndex(where: { idx in
+            state.board.cells.indices.contains(idx) && state.board.cells[idx] == item
+        }) {
+            let cellIdx = preferredCells.remove(at: pos)
+            state.board.cells[cellIdx] = nil
+            return true
+        }
+        return takeFromBoard(&state, item: item)
+    }
+
     /// Finds the first pair of identical mergeable cells for idle visual hint.
     public static func findMergeablePair(_ state: DiaryGameState) -> (Int, Int)? {
         var seen: [MergeItem: Int] = [:]
@@ -250,6 +266,7 @@ public enum DiaryOrders {
     public static func deliverOrder<R: RandomSource>(
         _ state: inout DiaryGameState,
         orderID: String,
+        preferredCells: [Int] = [],
         rng: inout R,
         balance: DiaryBalance = .default
     ) -> DeliverOrderResult {
@@ -257,7 +274,10 @@ public enum DiaryOrders {
         let order = state.orders.active[idx]
         guard canDeliver(state, order: order) else { return .missingItems }
 
-        for item in order.items { DiaryBoard.takeFromBoard(&state, item: item) }
+        var remainingPreferred = preferredCells
+        for item in order.items {
+            DiaryBoard.takeFromBoard(&state, item: item, preferredCells: &remainingPreferred)
+        }
         state.coins += order.wage
         state.orders.completedTotal += 1
         let gift = advanceCustomer(&state, customer: order.customer, balance: balance)

@@ -47,6 +47,17 @@ enum ActiveSheet: Identifiable, Equatable {
     }
 }
 
+struct PendingOrderDelivery: Equatable {
+    let orderID: String
+    var reservedCells: [Int]
+}
+
+private struct PendingAdCompletion: Equatable {
+    let claimID: String
+    let offer: AdOffer
+    let result: AdPlayResult
+}
+
 @MainActor
 @Observable
 final class DiaryAppStore {
@@ -71,6 +82,7 @@ final class DiaryAppStore {
     private(set) var transientCatPose: CatHomePose?
     private(set) var luckyCells: Set<Int> = []
     private(set) var recentMergedCell: Int?
+    private(set) var pendingOrderDeliveries: [PendingOrderDelivery] = []
 
     // Debug / M1 testing toggles (exposed in Settings)
     var mockAdsEnabled: Bool = true {
@@ -89,8 +101,9 @@ final class DiaryAppStore {
     @ObservationIgnored private var engine: DiaryGameEngine
     @ObservationIgnored private var saveRetry = SaveRetryState()
     @ObservationIgnored private var saveNeedsWrite = false
-    @ObservationIgnored private var pendingOrderDeliveryID: String?
+    @ObservationIgnored private var pendingAdCompletions: [PendingAdCompletion] = []
     @ObservationIgnored private var expiredWishGuardGoal: WishGoal?
+    @ObservationIgnored private var stateGeneration = 0
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var poseTask: Task<Void, Never>?
@@ -104,6 +117,42 @@ final class DiaryAppStore {
 
     var currentPhotoModalID: String? { photoQueue.first }
     var currentLevelUpModal: LevelUpModalItem? { photoQueue.isEmpty ? levelUpQueue.first : nil }
+    var reservedBoardCells: Set<Int> { Set(pendingOrderDeliveries.flatMap(\.reservedCells)) }
+
+    func isOrderDeliveryPending(_ orderID: String) -> Bool {
+        pendingOrderDeliveries.contains { $0.orderID == orderID }
+    }
+
+    func isCellReserved(_ index: Int) -> Bool {
+        reservedBoardCells.contains(index)
+    }
+
+    func canDeliverOrder(_ order: CustomerOrder) -> Bool {
+        guard !isOrderDeliveryPending(order.id),
+              state.orders.active.contains(where: { $0.id == order.id }) else {
+            return false
+        }
+        return selectUnreservedCells(for: order.items, excluding: reservedBoardCells) != nil
+    }
+
+    func unreservedOrderItemMatches(for order: CustomerOrder) -> [Bool] {
+        if isOrderDeliveryPending(order.id) {
+            return Array(repeating: true, count: order.items.count)
+        }
+        let reserved = reservedBoardCells
+        var available: [MergeItem: Int] = [:]
+        for (idx, cell) in state.board.cells.enumerated() where !reserved.contains(idx) {
+            if let item = cell {
+                available[item, default: 0] += 1
+            }
+        }
+        return order.items.map { item in
+            let count = available[item] ?? 0
+            guard count > 0 else { return false }
+            available[item] = count - 1
+            return true
+        }
+    }
 
     var nowMs: Int64 { DayClock.epochMs(clock()) }
     var sceneLight: SceneLight { engine.sceneLight(now: nowMs) }
@@ -279,6 +328,7 @@ final class DiaryAppStore {
     }
 
     func moveItem(from: Int, to: Int) -> MoveItemResult {
+        guard !isCellReserved(from), !isCellReserved(to) else { return .invalid }
         let out = engine.moveItem(from: from, to: to, now: nowMs)
         syncStateAndApply(events: out.events, save: out.value != .invalid)
         switch out.value {
@@ -313,6 +363,7 @@ final class DiaryAppStore {
     }
 
     func sellItem(at index: Int) {
+        guard !isCellReserved(index) else { return }
         let out = engine.sellItem(at: index, now: nowMs)
         guard out.value > 0 else {
             syncStateAndApply(events: out.events, save: false)
@@ -324,6 +375,7 @@ final class DiaryAppStore {
     }
 
     func bringHome(cellIndex: Int) {
+        guard !isCellReserved(cellIndex) else { return }
         let out = engine.bringHome(cellIndex: cellIndex, now: nowMs)
         switch out.value {
         case .brought(let item):
@@ -353,15 +405,25 @@ final class DiaryAppStore {
     }
 
     func deliverOrder(_ orderID: String) {
+        if isOrderDeliveryPending(orderID) {
+            if !isSaving {
+                scheduleSave(force: true, resetBackoff: true)
+            }
+            return
+        }
         guard let order = state.orders.active.first(where: { $0.id == orderID }),
-              DiaryOrders.canDeliver(state, order: order) else { return }
-        if pendingOrderDeliveryID == orderID && isSaving { return }
-        pendingOrderDeliveryID = orderID
+              let cells = selectUnreservedCells(for: order.items, excluding: reservedBoardCells) else {
+            return
+        }
+        pendingOrderDeliveries.append(PendingOrderDelivery(orderID: orderID, reservedCells: cells))
         scheduleSave(force: true, resetBackoff: true)
     }
 
     func rerollOrder(_ orderID: String) {
-        if pendingOrderDeliveryID == orderID { pendingOrderDeliveryID = nil }
+        if isOrderDeliveryPending(orderID) {
+            guard !isSaving else { return }
+            pendingOrderDeliveries.removeAll { $0.orderID == orderID }
+        }
         let out = engine.rerollOrder(orderID: orderID, now: nowMs)
         guard out.value != nil else {
             syncStateAndApply(events: out.events, save: false)
@@ -493,7 +555,7 @@ final class DiaryAppStore {
     // MARK: - Ads
 
     private func tryPresentMaterialAd(for chain: MergeChain) {
-        guard activeAdOffer == nil else { return }
+        guard activeAdOffer == nil, pendingAdCompletions.isEmpty else { return }
         let out = engine.materialOfferFor(chain: chain, now: nowMs) { [weak self] _ in
             self?.adService.isReady(slot: .material) == true
         }
@@ -520,7 +582,7 @@ final class DiaryAppStore {
     }
 
     func watchActiveAd() {
-        guard let offer = activeAdOffer else { return }
+        guard let offer = activeAdOffer, pendingAdCompletions.isEmpty else { return }
         activeAdOffer = nil
         let startOut = engine.startAd(offer: offer, now: nowMs)
         guard let claimID = startOut.value else {
@@ -530,25 +592,26 @@ final class DiaryAppStore {
         }
         syncStateAndApply(events: startOut.events, save: true)
         audio.setAdPaused(true)
+        let generation = stateGeneration
         Task { [weak self] in
             guard let self else { return }
             let result = await self.adService.play(slot: offer.slot)
+            guard self.stateGeneration == generation else { return }
             self.playingMockAdSlot = nil
             self.audio.setAdPaused(false)
-            let finishOut = self.engine.finishAd(claimID: claimID, result: result, now: self.nowMs)
-            self.syncStateAndApply(events: finishOut.events, save: true)
-            if finishOut.value {
-                self.audio.play(.coins)
-                switch offer {
-                case .material(let m):
-                    self.notices.show(GameStrings.format("ad.rewardMaterials", m.count, GameStrings.itemName(m.item)))
-                case .wage(let w):
-                    self.notices.show(GameStrings.format("ad.rewardCoins", w.amount))
-                }
-            } else if result == .failed {
-                self.notices.show(GameStrings.text("ad.playFailed"))
+            if result == .ended {
+                self.pendingAdCompletions.append(
+                    PendingAdCompletion(claimID: claimID, offer: offer, result: .ended)
+                )
+                self.scheduleSave(force: true, resetBackoff: true)
             } else {
-                self.notices.show(GameStrings.text("ad.closedEarly"))
+                let finishOut = self.engine.finishAd(claimID: claimID, result: result, now: self.nowMs)
+                self.syncStateAndApply(events: finishOut.events, save: true)
+                if result == .failed {
+                    self.notices.show(GameStrings.text("ad.playFailed"))
+                } else {
+                    self.notices.show(GameStrings.text("ad.closedEarly"))
+                }
             }
         }
     }
@@ -576,7 +639,9 @@ final class DiaryAppStore {
     }
 
     func resetProgress() {
-        pendingOrderDeliveryID = nil
+        stateGeneration &+= 1
+        pendingOrderDeliveries.removeAll()
+        pendingAdCompletions.removeAll()
         expiredWishGuardGoal = nil
         let out = engine.resetProgress(now: nowMs)
         photoQueue.removeAll()
@@ -657,24 +722,72 @@ final class DiaryAppStore {
         startSaveLoop()
     }
 
+    private func selectUnreservedCells(for items: [MergeItem], excluding alreadyReserved: Set<Int>) -> [Int]? {
+        var used = alreadyReserved
+        var chosen: [Int] = []
+        for needed in items {
+            guard let idx = state.board.cells.indices.first(where: { cellIdx in
+                !used.contains(cellIdx) && state.board.cells[cellIdx] == needed
+            }) else {
+                return nil
+            }
+            used.insert(idx)
+            chosen.append(idx)
+        }
+        return chosen
+    }
+
     private func startSaveLoop() {
         isSaving = true
         saveTask = Task { [weak self] in
             guard let self else { return }
-            while self.saveNeedsWrite {
-                self.saveNeedsWrite = false
+            while !self.pendingAdCompletions.isEmpty || !self.pendingOrderDeliveries.isEmpty || self.saveNeedsWrite {
+                let generation = self.stateGeneration
                 let now = self.clock()
                 let saveNowMs = DayClock.epochMs(now)
                 do {
-                    if let orderID = self.pendingOrderDeliveryID {
+                    if let completion = self.pendingAdCompletions.first {
+                        self.saveNeedsWrite = false
                         let baseState = self.state
                         let candidateEngine = self.engine.cloned()
-                        let out = candidateEngine.deliverOrder(orderID: orderID, now: saveNowMs)
+                        let finishOut = candidateEngine.finishAd(
+                            claimID: completion.claimID,
+                            result: completion.result,
+                            now: saveNowMs
+                        )
+                        if finishOut.value {
+                            try await self.repository.save(candidateEngine.state, now: now)
+                            guard self.stateGeneration == generation else { continue }
+                            if self.pendingAdCompletions.first == completion {
+                                self.pendingAdCompletions.removeFirst()
+                            }
+                            self.commitSavedAdCompletion(
+                                completion: completion,
+                                baseState: baseState,
+                                candidateEngine: candidateEngine,
+                                commitEvents: finishOut.events
+                            )
+                        } else {
+                            if self.pendingAdCompletions.first == completion {
+                                self.pendingAdCompletions.removeFirst()
+                            }
+                            try await self.repository.save(self.state, now: now)
+                        }
+                    } else if let delivery = self.pendingOrderDeliveries.first {
+                        self.saveNeedsWrite = false
+                        let baseState = self.state
+                        let candidateEngine = self.engine.cloned()
+                        let out = candidateEngine.deliverOrder(
+                            orderID: delivery.orderID,
+                            preferredCells: delivery.reservedCells,
+                            now: saveNowMs
+                        )
                         if case .delivered(_, let wage, let gift, _) = out.value.result {
                             let eligibleBonus: WageOffer? = if let bonus = out.value.bonusOffer,
                                 self.adService.isReady(slot: .wage),
                                 candidateEngine.offerStillAllowed(.wage(bonus), now: saveNowMs),
-                                self.activeAdOffer == nil {
+                                self.activeAdOffer == nil,
+                                self.pendingAdCompletions.isEmpty {
                                 bonus
                             } else {
                                 nil
@@ -685,9 +798,10 @@ final class DiaryAppStore {
                                 commitEvents.append(contentsOf: shownOut.events)
                             }
                             try await self.repository.save(candidateEngine.state, now: now)
-                            self.pendingOrderDeliveryID = nil
+                            guard self.stateGeneration == generation else { continue }
+                            self.pendingOrderDeliveries.removeAll { $0.orderID == delivery.orderID }
                             self.commitSavedOrderDelivery(
-                                orderID: orderID,
+                                delivery: delivery,
                                 baseState: baseState,
                                 candidateEngine: candidateEngine,
                                 commitEvents: commitEvents,
@@ -696,10 +810,11 @@ final class DiaryAppStore {
                                 bonus: eligibleBonus
                             )
                         } else {
-                            self.pendingOrderDeliveryID = nil
+                            self.pendingOrderDeliveries.removeAll { $0.orderID == delivery.orderID }
                             try await self.repository.save(self.state, now: now)
                         }
                     } else {
+                        self.saveNeedsWrite = false
                         let snapshot = self.state
                         try await self.repository.save(snapshot, now: now)
                     }
@@ -721,8 +836,40 @@ final class DiaryAppStore {
         }
     }
 
+    private func commitSavedAdCompletion(
+        completion: PendingAdCompletion,
+        baseState: DiaryGameState,
+        candidateEngine: DiaryGameEngine,
+        commitEvents: [DiaryGameEvent]
+    ) {
+        var granted = true
+        if self.state == baseState {
+            self.engine = candidateEngine
+            self.syncStateAndApply(events: commitEvents, save: false)
+        } else {
+            let liveOut = self.engine.finishAd(
+                claimID: completion.claimID,
+                result: completion.result,
+                now: self.nowMs
+            )
+            granted = liveOut.value
+            self.syncStateAndApply(events: liveOut.events, save: false)
+            if granted {
+                self.saveNeedsWrite = true
+            }
+        }
+        guard granted else { return }
+        self.audio.play(.coins)
+        switch completion.offer {
+        case .material(let m):
+            self.notices.show(GameStrings.format("ad.rewardMaterials", m.count, GameStrings.itemName(m.item)))
+        case .wage(let w):
+            self.notices.show(GameStrings.format("ad.rewardCoins", w.amount))
+        }
+    }
+
     private func commitSavedOrderDelivery(
-        orderID: String,
+        delivery: PendingOrderDelivery,
         baseState: DiaryGameState,
         candidateEngine: DiaryGameEngine,
         commitEvents: [DiaryGameEvent],
@@ -738,7 +885,11 @@ final class DiaryAppStore {
             self.engine = candidateEngine
             self.syncStateAndApply(events: commitEvents, save: false)
         } else {
-            let liveOut = self.engine.deliverOrder(orderID: orderID, now: self.nowMs)
+            let liveOut = self.engine.deliverOrder(
+                orderID: delivery.orderID,
+                preferredCells: delivery.reservedCells,
+                now: self.nowMs
+            )
             guard case .delivered(_, let liveWage, let liveGift, _) = liveOut.value.result else { return }
             finalWage = liveWage
             finalGift = liveGift
@@ -746,7 +897,8 @@ final class DiaryAppStore {
             if let candidateBonus = liveOut.value.bonusOffer,
                self.adService.isReady(slot: .wage),
                self.engine.offerStillAllowed(.wage(candidateBonus), now: self.nowMs),
-               self.activeAdOffer == nil {
+               self.activeAdOffer == nil,
+               self.pendingAdCompletions.isEmpty {
                 let shownOut = self.engine.offerShown(.wage(candidateBonus), now: self.nowMs)
                 liveEvents.append(contentsOf: shownOut.events)
                 finalBonus = candidateBonus
@@ -757,7 +909,7 @@ final class DiaryAppStore {
             self.saveNeedsWrite = true
         }
 
-        if case .orderDetail(let sheetOrder) = self.activeSheet, sheetOrder.id == orderID {
+        if case .orderDetail(let sheetOrder) = self.activeSheet, sheetOrder.id == delivery.orderID {
             self.activeSheet = nil
         }
         self.audio.play(.coins, userInitiated: true)

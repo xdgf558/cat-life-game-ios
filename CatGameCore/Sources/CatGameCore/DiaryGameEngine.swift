@@ -144,9 +144,19 @@ public final class DiaryGameEngine {
 
     // MARK: - Orders & Shop
 
-    public func deliverOrder(orderID: String, now: Int64) -> EngineCommandOutput<(result: DeliverOrderResult, bonusOffer: WageOffer?)> {
+    public func deliverOrder(
+        orderID: String,
+        preferredCells: [Int] = [],
+        now: Int64
+    ) -> EngineCommandOutput<(result: DeliverOrderResult, bonusOffer: WageOffer?)> {
         run(now: now) { events in
-            let result = DiaryOrders.deliverOrder(&state, orderID: orderID, rng: &rng, balance: balance)
+            let result = DiaryOrders.deliverOrder(
+                &state,
+                orderID: orderID,
+                preferredCells: preferredCells,
+                rng: &rng,
+                balance: balance
+            )
             guard case .delivered(let order, let wage, let gift, _) = result else {
                 return (result, nil)
             }
