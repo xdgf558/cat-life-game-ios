@@ -155,4 +155,40 @@ final class DiaryAdsAndLedgerTests: XCTestCase {
         XCTAssertEqual(offer.target, wand)
         XCTAssertEqual(offer.count, 8)
     }
+
+    func testPreMidnightAdClaimGrantedAfterMidnightDoesNotConsumeNextDayQuota() {
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = TimeZone(secondsFromGMT: 0)!
+
+        var comps = DateComponents()
+        comps.calendar = utcCal
+        comps.timeZone = utcCal.timeZone
+        comps.year = 2026
+        comps.month = 11
+        comps.day = 26
+        comps.hour = 23
+        comps.minute = 59
+        comps.second = 50
+        let beforeMidnightMs = DayClock.epochMs(comps.date!)
+        let afterMidnightMs = beforeMidnightMs + 20_000 // 2026-11-27 00:00:10 UTC
+
+        var state = DiaryGameState.fresh(now: beforeMidnightMs, calendar: utcCal)
+        state.tutorialActive = false
+        state.orders.completedTotal = 2
+
+        let engine = DiaryGameEngine(state: state, adConfig: .default, calendar: utcCal)
+        let offer = AdOffer.wage(WageOffer(orderID: "o1", amount: 25, wishlistShortAfter: nil, furniture: nil, furniturePrice: nil))
+        guard let claimID = engine.startAd(offer: offer, now: beforeMidnightMs).value else {
+            return XCTFail("Expected pending claim before midnight")
+        }
+        XCTAssertEqual(DiaryLedger.findClaim(engine.state, id: claimID)?.dayKey, 20_261_126)
+
+        // Ad playback or save commit completes after midnight -> reward grants, but Day 2 quota stays untouched!
+        let finishOut = engine.finishAd(claimID: claimID, result: .ended, now: afterMidnightMs)
+        XCTAssertTrue(finishOut.value)
+        XCTAssertEqual(engine.state.coins, 25)
+        XCTAssertEqual(engine.state.dayKey, 20_261_127)
+        XCTAssertEqual(engine.state.ads.used[.wage], 0)
+        XCTAssertEqual(DiaryAds.remainingForSlot(engine.state, slot: .wage, config: .default), 2)
+    }
 }

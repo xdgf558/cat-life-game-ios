@@ -46,7 +46,9 @@ public enum DiaryLedger {
         }
         state.ads.ledger[idx].status = .granted
         applyReward(&state, reward: claim.reward)
-        state.ads.used[claim.slot, default: 0] += 1
+        if claim.dayKey == state.dayKey {
+            state.ads.used[claim.slot, default: 0] += 1
+        }
         state.ads.claimedKeys.append(claim.key)
         if state.ads.claimedKeys.count > claimedKeysKeep {
             state.ads.claimedKeys.removeFirst(state.ads.claimedKeys.count - claimedKeysKeep)
@@ -167,7 +169,7 @@ public enum DiaryAds {
     public static func remainingForSlot(_ state: DiaryGameState, slot: AdSlot, config: AdRemoteConfig) -> Int {
         let pending = DiaryLedger.pendingClaims(state)
         func used(_ s: AdSlot) -> Int {
-            (state.ads.used[s] ?? 0) + pending.filter { $0.slot == s }.count
+            (state.ads.used[s] ?? 0) + pending.filter { $0.slot == s && $0.dayKey == state.dayKey }.count
         }
         let totalUsed = AdSlot.allCases.reduce(0) { $0 + used($1) }
         return max(0, min(config.dailyLimit(for: slot) - used(slot), config.totalDailyLimit - totalUsed))
@@ -190,7 +192,7 @@ public enum DiaryAds {
     }
 
     public static func markOfferShown(_ state: inout DiaryGameState, now: Int64) {
-        state.ads.lastOfferAt = now
+        state.ads.lastOfferAt = max(state.ads.lastOfferAt ?? now, now)
     }
 
     public static func recordRefusal(_ state: inout DiaryGameState, slot: AdSlot, config: AdRemoteConfig) {

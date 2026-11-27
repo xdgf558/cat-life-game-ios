@@ -468,14 +468,16 @@ final class DiaryAppStoreTests: XCTestCase {
         let wand = MergeItem(chain: .cloth, level: 4) // 8 units
         let order1 = CustomerOrder(id: "o1", customer: .ajian, items: [ball], wage: 10)
         let order2 = CustomerOrder(id: "o2", customer: .grandma, items: [wand], wage: 20)
+        // Populate all 3 active order slots so `bootstrap()` never rolls a random order with smaller gap.
+        let order3 = CustomerOrder(id: "o3", customer: .ajian, items: [wand, wand], wage: 40)
 
         var initial = DiaryGameState.fresh(now: DayClock.epochMs(now))
         initial.tutorialActive = false
         initial.orders.completedTotal = 2
         initial.energy.current = 0
         initial.energy.updatedAt = DayClock.epochMs(now)
-        initial.orders.active = [order1, order2]
-        initial.orders.nextID = 3
+        initial.orders.active = [order1, order2, order3]
+        initial.orders.nextID = 4
         initial.board.cells[0] = ball
 
         let repo = FlakySaveRepository(initialState: initial)
@@ -690,6 +692,123 @@ final class DiaryAppStoreTests: XCTestCase {
         XCTAssertEqual(store.state.updatedAt, DayClock.epochMs(t2))
         XCTAssertEqual(store.state.primaryCat.updatedAt, DayClock.epochMs(t2))
         XCTAssertEqual(store.state.ads.lastOfferAt, DayClock.epochMs(t2))
+    }
+
+    func testWageAdCooldownIsMeasuredFromActualDisplayAndDismissalTime() async throws {
+        let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+        let t1 = t0.addingTimeInterval(89) // o1 slow save finishes at +89s -> Wage Ad #1 appears at +89s
+        let t2 = t0.addingTimeInterval(90) // o2 delivered 1s later at +90s -> must NOT pop Wage Ad #2!
+        let clock = MutableTestClock(t0)
+
+        let wand = MergeItem(chain: .cloth, level: 4)
+        let order1 = CustomerOrder(id: "o1", customer: .ajian, items: [wand], wage: 20)
+        let order2 = CustomerOrder(id: "o2", customer: .grandma, items: [wand], wage: 20)
+        let order3 = CustomerOrder(id: "o3", customer: .ajian, items: [wand, wand], wage: 40)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(t0))
+        initial.tutorialActive = false
+        initial.orders.completedTotal = 2
+        initial.orders.active = [order1, order2, order3]
+        initial.orders.nextID = 4
+        initial.board.cells[0] = wand
+        initial.board.cells[1] = wand
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { clock.now }
+        )
+        await store.bootstrap()
+        try await waitUntil { !store.isSaving }
+
+        // Start delivering o1 at t0; save completes 89s later at t1 with NO concurrent board mutation.
+        await repo.setSavePaused(true)
+        store.deliverOrder("o1")
+        try await waitUntil { await repo.inFlightSaves == 1 }
+
+        clock.now = t1
+        await repo.setSavePaused(false)
+        try await waitUntil { !store.isSaving && store.pendingOrderDeliveries.isEmpty }
+
+        XCTAssertNotNil(store.activeAdOffer, "Wage Ad #1 appears at t1 (+89s)")
+        XCTAssertEqual(store.state.ads.lastOfferAt, DayClock.epochMs(t1))
+
+        // Dismiss Wage Ad #1 at t1 and deliver o2 just 1 second later at t2 (+90s):
+        // Wage Ad #2 must be suppressed by the 90s cooldown!
+        store.refuseActiveAd()
+        try await waitUntil { !store.isSaving }
+
+        clock.now = t2
+        store.deliverOrder("o2")
+        try await waitUntil { !store.isSaving && store.pendingOrderDeliveries.isEmpty }
+
+        XCTAssertEqual(store.state.coins, 40)
+        XCTAssertNil(store.activeAdOffer, "Second wage ad must not pop up 1 second after the first")
+    }
+
+    func testAdCompletedBeforeMidnightCommittedAfterMidnightKeepsNextDayQuota() async throws {
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+
+        var comps = DateComponents()
+        comps.calendar = utcCal
+        comps.timeZone = utcCal.timeZone
+        comps.year = 2026
+        comps.month = 11
+        comps.day = 26
+        comps.hour = 23
+        comps.minute = 59
+        comps.second = 45
+        let tStart = try XCTUnwrap(comps.date)
+        let tEndBeforeMidnight = tStart.addingTimeInterval(10) // 23:59:55 UTC (Day 1)
+        let tAfterMidnight = tStart.addingTimeInterval(20)     // 00:00:05 UTC (Day 2)
+        let clock = MutableTestClock(tStart)
+
+        let wand = MergeItem(chain: .cloth, level: 4)
+        let order1 = CustomerOrder(id: "o1", customer: .ajian, items: [wand], wage: 20)
+        let order2 = CustomerOrder(id: "o2", customer: .grandma, items: [wand], wage: 20)
+        let order3 = CustomerOrder(id: "o3", customer: .ajian, items: [wand, wand], wage: 40)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(tStart), calendar: utcCal)
+        initial.tutorialActive = false
+        initial.coins = 110
+        initial.orders.completedTotal = 2
+        initial.orders.active = [order1, order2, order3]
+        initial.orders.nextID = 4
+        initial.board.cells[0] = wand
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { clock.now },
+            calendar: utcCal
+        )
+        await store.bootstrap()
+        try await waitUntil { !store.isSaving }
+
+        store.deliverOrder("o1")
+        try await waitUntil { !store.isSaving && store.state.coins == 130 }
+        store.watchActiveAd()
+        try await waitUntil { store.playingMockAdSlot == .wage && !store.isSaving }
+
+        // Finish watching the ad BEFORE midnight (23:59:55), pause its save, then cross midnight
+        // with a concurrent action so `commitSavedAdCompletion` commits on Day 2 (00:00:05).
+        clock.now = tEndBeforeMidnight
+        await repo.setSavePaused(true)
+        store.finishMockAdPlayback(with: .ended)
+        try await waitUntil { await repo.inFlightSaves == 1 }
+
+        clock.now = tAfterMidnight
+        store.toggleWishlist(.windowCushion)
+        await repo.setSavePaused(false)
+        try await waitUntil { !store.isSaving }
+
+        XCTAssertEqual(store.state.coins, 150)
+        XCTAssertEqual(store.state.dayKey, 20_261_127)
+        XCTAssertEqual(store.state.ads.used[.wage], 0, "Yesterday's ad must not deduct today's quota")
+        XCTAssertEqual(DiaryAds.remainingForSlot(store.state, slot: .wage, config: .default), 2)
     }
 
     private func waitUntil(timeoutMs: Int = 1000, condition: () async -> Bool) async throws {

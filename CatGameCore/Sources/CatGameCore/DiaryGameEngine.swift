@@ -367,6 +367,7 @@ public final class DiaryGameEngine {
     public func refuseAd(slot: AdSlot, now: Int64) -> EngineCommandOutput<Void> {
         run(now: now) { events in
             DiaryAds.recordRefusal(&state, slot: slot, config: adConfig)
+            DiaryAds.markOfferShown(&state, now: now)
             events.append(.adRefused(slot))
         }
     }
@@ -389,6 +390,7 @@ public final class DiaryGameEngine {
     public func finishAd(claimID: String, result: AdPlayResult, now: Int64) -> EngineCommandOutput<Bool> {
         run(now: now) { events in
             guard let claim = DiaryLedger.findClaim(state, id: claimID) else { return false }
+            DiaryAds.markOfferShown(&state, now: now)
             if result == .ended {
                 let granted = DiaryLedger.grantOnce(&state, id: claimID)
                 if granted {
