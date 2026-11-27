@@ -170,6 +170,59 @@ public enum FurnitureID: String, Codable, CaseIterable, Hashable, Sendable {
     public var assetName: String { "furn_\(rawValue)" }
 }
 
+public enum RoomSkinID: String, Codable, CaseIterable, Hashable, Sendable {
+    case defaultSkin = "skin_default"
+    case honey = "skin_honey"
+    case mint = "skin_mint"
+    case sakura = "skin_sakura"
+
+    public var decoAssetName: String? {
+        switch self {
+        case .defaultSkin: nil
+        case .honey: "skin_deco_honey"
+        case .mint: "skin_deco_mint"
+        case .sakura: "skin_deco_sakura"
+        }
+    }
+}
+
+public enum TreasureID: String, Codable, CaseIterable, Hashable, Sendable {
+    case ginkgo = "tr_ginkgo"
+    case clover = "tr_clover"
+    case daisy = "tr_daisy"
+    case pinecone = "tr_pinecone"
+    case feather = "tr_feather"
+    case pebble = "tr_pebble"
+    case button = "tr_button"
+    case marble = "tr_marble"
+    case yarn = "tr_yarn"
+    case woodcurl = "tr_woodcurl"
+    case woodbell = "tr_woodbell"
+    case cork = "tr_cork"
+    case fishpaper = "tr_fishpaper"
+    case candywrap = "tr_candywrap"
+    case coin = "tr_coin"
+    case bellribbon = "tr_bellribbon"
+    case ticket = "tr_ticket"
+    case seashell = "tr_seashell"
+
+    public var assetName: String { rawValue }
+}
+
+public enum OutingSpot: String, Codable, CaseIterable, Hashable, Sendable {
+    case garden
+    case alley
+    case workshopAjian = "workshop_ajian"
+    case shopGrandma = "shop_grandma"
+    case petshopWindow = "petshop_window"
+}
+
+public enum TreasureRarity: String, Codable, CaseIterable, Hashable, Sendable {
+    case common
+    case rare
+    case legend
+}
+
 public enum AdSlot: String, Codable, CaseIterable, Hashable, Sendable {
     case material
     case wage
@@ -255,6 +308,53 @@ public enum DayClock {
     public static func dayKey(for ms: Int64, calendar: Calendar = .current) -> Int {
         let gregorian = gregorianCalendar(matching: calendar)
         let comps = gregorian.dateComponents([.year, .month, .day], from: date(fromEpochMs: ms))
+        return (comps.year ?? 1970) * 10_000 + (comps.month ?? 1) * 100 + (comps.day ?? 1)
+    }
+
+    public static func gregorianComponents(
+        for ms: Int64,
+        calendar: Calendar = .current
+    ) -> (year: Int, month: Int, day: Int, hour: Int, weekday: Int) {
+        let gregorian = gregorianCalendar(matching: calendar)
+        let comps = gregorian.dateComponents([.year, .month, .day, .hour, .weekday], from: date(fromEpochMs: ms))
+        return (
+            year: comps.year ?? 1970,
+            month: comps.month ?? 1,
+            day: comps.day ?? 1,
+            hour: comps.hour ?? 0,
+            weekday: comps.weekday ?? 1
+        )
+    }
+
+    private static func utcDate(fromDayKey key: Int) -> Date? {
+        guard isValidDayKey(key) else { return nil }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        var comps = DateComponents()
+        comps.year = key / 10_000
+        comps.month = (key / 100) % 100
+        comps.day = key % 100
+        return cal.date(from: comps)
+    }
+
+    /// True if Gregorian dayKey falls on Saturday (7) or Sunday (1).
+    public static func isWeekend(dayKey: Int) -> Bool {
+        guard let date = utcDate(fromDayKey: dayKey) else { return false }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        let weekday = cal.component(.weekday, from: date)
+        return weekday == 1 || weekday == 7
+    }
+
+    /// Returns the Monday Gregorian dayKey (YYYYMMDD) for the week containing `dayKey`.
+    public static func weekKey(for dayKey: Int) -> Int {
+        guard let date = utcDate(fromDayKey: dayKey) else { return dayKey }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        let weekday = cal.component(.weekday, from: date) // 1=Sun, 2=Mon, ..., 7=Sat
+        let daysBack = (weekday + 5) % 7
+        guard let monday = cal.date(byAdding: .day, value: -daysBack, to: date) else { return dayKey }
+        let comps = cal.dateComponents([.year, .month, .day], from: monday)
         return (comps.year ?? 1970) * 10_000 + (comps.month ?? 1) * 100 + (comps.day ?? 1)
     }
 

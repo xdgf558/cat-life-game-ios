@@ -47,6 +47,14 @@ enum GameStrings {
         text("furn.\(id.rawValue)")
     }
 
+    static func roomSkinName(_ id: RoomSkinID) -> String {
+        text("skin.\(id.rawValue)")
+    }
+
+    static func catName(_ id: CatID) -> String {
+        text("cat.\(id.rawValue)")
+    }
+
     static func customerName(_ id: CustomerID) -> String {
         text("customer.\(id.rawValue)")
     }
@@ -63,8 +71,48 @@ enum GameStrings {
         text("photo.\(id).caption")
     }
 
+    static func albumPhotoHint(_ id: String) -> String {
+        text("album.hint.\(id)")
+    }
+
+    static func albumTierName(_ tier: AlbumTier) -> String {
+        text("album.tier.\(tier.rawValue)")
+    }
+
     static func photoCategoryName(_ category: PhotoCategory) -> String {
         text("diary.cat.\(category.rawValue)")
+    }
+
+    static func treasureName(_ id: TreasureID) -> String {
+        text("treasure.\(id.rawValue).name")
+    }
+
+    static func treasureFirst(_ id: TreasureID) -> String {
+        text("treasure.\(id.rawValue).first")
+    }
+
+    static func treasureRepeat(_ id: TreasureID) -> String {
+        text("treasure.\(id.rawValue).repeat")
+    }
+
+    static func outingSpotName(_ spot: OutingSpot) -> String {
+        text("outing.spot.\(spot.rawValue)")
+    }
+
+    static func customerStoryText(customer: CustomerID, index: Int) -> String {
+        text(String(format: "story.%@.%02d", customer.rawValue, index + 1))
+    }
+
+    static func weekendOrderLine(for customer: CustomerID) -> String {
+        text("weekend.line.\(customer.rawValue)")
+    }
+
+    static func milestoneTitle(_ id: MilestoneID) -> String {
+        text("milestone.\(id.rawValue).title")
+    }
+
+    static func milestoneBody(_ id: MilestoneID) -> String {
+        text("milestone.\(id.rawValue).body")
     }
 
     static func wishLabel(_ goal: WishGoal) -> String {

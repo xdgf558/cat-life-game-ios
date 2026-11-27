@@ -18,6 +18,7 @@
 		4C859EAB18DBF3D0D3320FFA4E7885E1 /* CatLifeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AFAD04BFD3083852B34E21A1AA84F16 /* CatLifeApp.swift */; };
 		6245D11E904EFAD468DD0F723C80D813 /* RoomTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861AEBCE8D52368291BEF87A95A5FE7C /* RoomTheme.swift */; };
 		69F545A31F0A6E8CBD2D9F0E65684AAC /* GameSavePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 997575A7A5CB10AF9EEA6DE647468A75 /* GameSavePipeline.swift */; };
+		6EF63C3A77DD40822B0B8D91AAB4A151 /* M2ModalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 019FAB478C84B36E53A8933BAEDEC0FB /* M2ModalsView.swift */; };
 		711EEC1FA07135DC69D7EDAE69161677 /* GameAudioContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143D85698597B854A83EA426D300E803 /* GameAudioContent.swift */; };
 		79312016265F2164EDF91CEB17CFA882 /* GameStrings+ZH.swift in Sources */ = {isa = PBXBuildFile; fileRef = F91DB913FF95FD2DBDBCF6950DEEC310 /* GameStrings+ZH.swift */; };
 		7B92F75BF4C7AF4BA0D2D97A8E4BC170 /* DiaryRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D95999A5D12500747DD996A7526775 /* DiaryRootView.swift */; };
@@ -60,6 +61,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		019FAB478C84B36E53A8933BAEDEC0FB /* M2ModalsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = M2ModalsView.swift; path = Views/M2ModalsView.swift; sourceTree = "<group>"; };
 		143D85698597B854A83EA426D300E803 /* GameAudioContent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = GameAudioContent.swift; path = AudioRuntime/GameAudioContent.swift; sourceTree = "<group>"; };
 		20C6D23348444E1E727998045E292E0E /* GameAudioController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = GameAudioController.swift; path = AudioRuntime/GameAudioController.swift; sourceTree = "<group>"; };
 		289FEEC54AC32F6E96A3002B352D58EE /* GameAudioPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GameAudioPolicyTests.swift; sourceTree = "<group>"; };
@@ -199,6 +201,7 @@
 				42D95999A5D12500747DD996A7526775 /* DiaryRootView.swift */,
 				2A539702452EE43AD3E67CF806EAE6EA /* DiarySheetView.swift */,
 				A785308D2CC9C25DA90FFD6A229EEF4B /* HomeView.swift */,
+				019FAB478C84B36E53A8933BAEDEC0FB /* M2ModalsView.swift */,
 				F302CBF439641B4C1DCBEA45C06EC49E /* OrderAndAdModalsView.swift */,
 				861AEBCE8D52368291BEF87A95A5FE7C /* RoomTheme.swift */,
 				A82F6958AAF3E03AE4241E750105C612 /* SettingsAudioControl.swift */,
@@ -396,6 +399,7 @@
 				7B92F75BF4C7AF4BA0D2D97A8E4BC170 /* DiaryRootView.swift in Sources */,
 				96B0B944B72CB2B994BAD0D6E84F8CBB /* DiarySheetView.swift in Sources */,
 				243F41E51162752F88AEC27D70F0C641 /* HomeView.swift in Sources */,
+				6EF63C3A77DD40822B0B8D91AAB4A151 /* M2ModalsView.swift in Sources */,
 				E867E4B97F9D3142172E3547B394B44F /* OrderAndAdModalsView.swift in Sources */,
 				6245D11E904EFAD468DD0F723C80D813 /* RoomTheme.swift in Sources */,
 				CE5F9BCCF36CA4697CF9B52F471F7AF9 /* SettingsAudioControl.swift in Sources */,

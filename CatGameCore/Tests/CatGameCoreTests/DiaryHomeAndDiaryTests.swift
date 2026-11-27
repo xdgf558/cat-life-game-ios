@@ -91,15 +91,21 @@ final class DiaryHomeAndDiaryTests: XCTestCase {
         XCTAssertEqual(DiaryCatalog.offlineNotes.count, 30)
     }
 
-    func testM1OmitsEntranceAndBalconyUnlockAnnouncementsAtLevels6And8() {
-        XCTAssertTrue(DiaryProgression.unlocks(at: 6).isEmpty)
-        XCTAssertTrue(DiaryProgression.unlocks(at: 8).isEmpty)
+    func testM2UnlocksEntranceAtLevel6AndBalconyAtLevel8() {
+        XCTAssertEqual(DiaryProgression.unlocks(at: 6), [.init(level: 6, kind: .room(.entrance))])
+        XCTAssertEqual(DiaryProgression.unlocks(at: 8), [.init(level: 8, kind: .room(.balcony))])
 
         var state = DiaryGameState.fresh(now: t0)
-        state.primaryCat.level = 10
-        XCTAssertTrue(DiaryProgression.roomUnlocked(state, room: .livingroom))
-        XCTAssertTrue(DiaryProgression.roomUnlocked(state, room: .bedroom))
+        state.primaryCat.level = 5
         XCTAssertFalse(DiaryProgression.roomUnlocked(state, room: .entrance))
         XCTAssertFalse(DiaryProgression.roomUnlocked(state, room: .balcony))
+
+        state.primaryCat.level = 6
+        XCTAssertTrue(DiaryProgression.roomUnlocked(state, room: .entrance))
+        XCTAssertFalse(DiaryProgression.roomUnlocked(state, room: .balcony))
+
+        state.primaryCat.level = 8
+        XCTAssertTrue(DiaryProgression.roomUnlocked(state, room: .entrance))
+        XCTAssertTrue(DiaryProgression.roomUnlocked(state, room: .balcony))
     }
 }

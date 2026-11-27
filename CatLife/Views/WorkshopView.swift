@@ -163,7 +163,7 @@ struct WorkshopView: View {
                 pinnedOrdersRow
             }
         }
-        .frame(width: width, height: 68)
+        .frame(width: width, height: 70)
     }
 
     private var tutorialStrip: some View {
@@ -185,117 +185,154 @@ struct WorkshopView: View {
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(RoomTheme.coral.opacity(0.65), lineWidth: 1.5))
     }
 
+    @ViewBuilder
     private var pinnedOrdersRow: some View {
-        HStack(spacing: 7) {
-            ForEach(store.state.orders.active) { order in
-                let status = store.orderCardStatus(for: order)
-                let pendingDelivery = status == .saving || status == .retrySave
-                let ready = status == .deliverable
-                let checks = store.unreservedOrderItemMatches(for: order)
-                Button {
-                    noteTouch()
-                    switch status {
-                    case .saving:
-                        break
-                    case .retrySave:
-                        store.retrySaveNow()
-                    case .deliverable:
-                        store.deliverOrder(order.id)
-                    case .incomplete:
-                        store.activeSheet = .orderDetail(order)
+        if let weekend = store.state.orders.weekendOrder {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    orderCardView(weekend, isWeekend: true)
+                        .frame(width: 158)
+                    ForEach(store.state.orders.active) { order in
+                        orderCardView(order, isWeekend: false)
+                            .frame(width: 118)
                     }
-                } label: {
-                    ZStack(alignment: .top) {
-                        VStack(spacing: 4) {
-                            HStack(spacing: 5) {
-                                Image(order.customer.avatarAssetName)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 24, height: 24)
-                                    .clipShape(Circle())
-                                    .overlay(Circle().stroke(RoomTheme.wood, lineWidth: 1))
+                }
+                .padding(.top, 3)
+            }
+        } else {
+            HStack(spacing: 7) {
+                ForEach(store.state.orders.active) { order in
+                    orderCardView(order, isWeekend: false)
+                }
+            }
+        }
+    }
 
-                                HStack(spacing: 3) {
-                                    ForEach(Array(order.items.enumerated()), id: \.offset) { idx, item in
-                                        ZStack(alignment: .bottomTrailing) {
-                                            Image(item.assetName)
-                                                .resizable()
-                                                .scaledToFit()
-                                                .frame(width: 29, height: 29)
-                                            if idx < checks.count && checks[idx] {
-                                                Image(systemName: "checkmark.circle.fill")
-                                                    .font(.system(size: 11))
-                                                    .foregroundStyle(RoomTheme.mint)
-                                                    .background(Circle().fill(.white).padding(1))
-                                            }
-                                        }
+    private func orderCardView(_ order: CustomerOrder, isWeekend: Bool) -> some View {
+        let status = store.orderCardStatus(for: order)
+        let pendingDelivery = status == .saving || status == .retrySave
+        let ready = status == .deliverable
+        let checks = store.unreservedOrderItemMatches(for: order)
+        let itemSize: CGFloat = isWeekend ? 26 : 29
+
+        return Button {
+            noteTouch()
+            switch status {
+            case .saving:
+                break
+            case .retrySave:
+                store.retrySaveNow()
+            case .deliverable:
+                store.deliverOrder(order.id)
+            case .incomplete:
+                store.activeSheet = .orderDetail(order)
+            }
+        } label: {
+            ZStack(alignment: .top) {
+                VStack(spacing: 4) {
+                    HStack(spacing: isWeekend ? 4 : 5) {
+                        Image(order.customer.avatarAssetName)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: isWeekend ? 22 : 24, height: isWeekend ? 22 : 24)
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(isWeekend ? RoomTheme.gold : RoomTheme.wood, lineWidth: isWeekend ? 1.4 : 1))
+
+                        HStack(spacing: isWeekend ? 2 : 3) {
+                            ForEach(Array(order.items.enumerated()), id: \.offset) { idx, item in
+                                ZStack(alignment: .bottomTrailing) {
+                                    Image(item.assetName)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: itemSize, height: itemSize)
+                                    if idx < checks.count && checks[idx] {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: isWeekend ? 10 : 11))
+                                            .foregroundStyle(RoomTheme.mint)
+                                            .background(Circle().fill(.white).padding(1))
                                     }
-                                }
-                                Spacer(minLength: 0)
-                            }
-
-                            HStack(spacing: 3) {
-                                switch status {
-                                case .saving:
-                                    Text(GameStrings.text("common.saving"))
-                                        .font(.system(size: 10, weight: .black, design: .rounded))
-                                        .foregroundStyle(.white)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 2)
-                                        .background(RoomTheme.secondary, in: Capsule())
-                                case .retrySave:
-                                    Text(GameStrings.text("save.retry"))
-                                        .font(.system(size: 10, weight: .black, design: .rounded))
-                                        .foregroundStyle(.white)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 2)
-                                        .background(RoomTheme.coral, in: Capsule())
-                                case .deliverable:
-                                    Text(GameStrings.text("order.deliver"))
-                                        .font(.system(size: 10.5, weight: .black, design: .rounded))
-                                        .foregroundStyle(.white)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 2)
-                                        .background(RoomTheme.mint, in: Capsule())
-                                case .incomplete:
-                                    Spacer(minLength: 0)
-                                    AssetOrSymbol(asset: "ui_coin", symbol: "dollarsign.circle.fill", size: 12, tint: RoomTheme.gold)
-                                    Text("\(order.wage)")
-                                        .font(.system(size: 11, weight: .heavy, design: .rounded))
-                                        .monospacedDigit()
-                                        .foregroundStyle(RoomTheme.ink)
                                 }
                             }
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.top, 9)
-                        .padding(.bottom, 6)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill((ready || pendingDelivery) ? RoomTheme.paleMint : RoomTheme.paper.opacity(0.96))
-                                .shadow(color: RoomTheme.ink.opacity(0.12), radius: 4, y: 2)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(
-                                    status == .retrySave
-                                        ? RoomTheme.coral
-                                        : ((ready || pendingDelivery) ? RoomTheme.mint : RoomTheme.wood.opacity(0.85)),
-                                    lineWidth: (ready || pendingDelivery) ? 1.8 : 1.1
-                                )
-                        )
+                        Spacer(minLength: 0)
+                    }
 
-                        // Tiny decorative tape tab
-                        Capsule()
-                            .fill(ready ? RoomTheme.mint.opacity(0.7) : RoomTheme.gold.opacity(0.45))
-                            .frame(width: 22, height: 4)
-                            .offset(y: -2)
+                    HStack(spacing: 3) {
+                        switch status {
+                        case .saving:
+                            Text(GameStrings.text("common.saving"))
+                                .font(.system(size: 10, weight: .black, design: .rounded))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 2)
+                                .background(RoomTheme.secondary, in: Capsule())
+                        case .retrySave:
+                            Text(GameStrings.text("save.retry"))
+                                .font(.system(size: 10, weight: .black, design: .rounded))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 2)
+                                .background(RoomTheme.coral, in: Capsule())
+                        case .deliverable:
+                            Text(GameStrings.text("order.deliver"))
+                                .font(.system(size: 10.5, weight: .black, design: .rounded))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 2)
+                                .background(isWeekend ? RoomTheme.gold : RoomTheme.mint, in: Capsule())
+                        case .incomplete:
+                            Spacer(minLength: 0)
+                            AssetOrSymbol(asset: "ui_coin", symbol: "dollarsign.circle.fill", size: 12, tint: RoomTheme.gold)
+                            Text("\(order.wage)")
+                                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(isWeekend ? RoomTheme.coralDeep : RoomTheme.ink)
+                        }
                     }
                 }
-                .buttonStyle(CraftIconBadgeButtonStyle())
+                .padding(.horizontal, isWeekend ? 7 : 8)
+                .padding(.top, isWeekend ? 12 : 9)
+                .padding(.bottom, 6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(
+                            (ready || pendingDelivery)
+                                ? RoomTheme.paleMint
+                                : (isWeekend ? RoomTheme.rewardPaper : RoomTheme.paper.opacity(0.96))
+                        )
+                        .shadow(color: RoomTheme.ink.opacity(0.12), radius: 4, y: 2)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(
+                            status == .retrySave
+                                ? RoomTheme.coral
+                                : ((ready || pendingDelivery)
+                                    ? RoomTheme.mint
+                                    : (isWeekend ? RoomTheme.gold : RoomTheme.wood.opacity(0.85))),
+                            lineWidth: (ready || pendingDelivery || isWeekend) ? 1.8 : 1.1
+                        )
+                )
+
+                if isWeekend {
+                    Text(GameStrings.text("weekend.badge"))
+                        .font(.system(size: 8.5, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(RoomTheme.gold, in: Capsule())
+                        .offset(y: -5)
+                } else {
+                    // Tiny decorative tape tab
+                    Capsule()
+                        .fill(ready ? RoomTheme.mint.opacity(0.7) : RoomTheme.gold.opacity(0.45))
+                        .frame(width: 22, height: 4)
+                        .offset(y: -2)
+                }
             }
         }
+        .buttonStyle(CraftIconBadgeButtonStyle())
     }
 
     private func selectedItemInspector(index: Int, item: MergeItem) -> some View {

@@ -16,11 +16,14 @@ enum CatHomePose: String, Equatable {
     case play
     case eat
 
-    func assetName(stage: CatGrowthStage = .kitten) -> String {
+    func assetName(stage: CatGrowthStage = .kitten, cat: CatID = .primary) -> String {
+        if cat == .xueqiu {
+            return "cat_xueqiu_\(rawValue)"
+        }
         switch stage {
-        case .kitten: "cat_\(rawValue)"
-        case .junior: "cat_junior_\(rawValue)"
-        case .adult: "cat_adult_\(rawValue)"
+        case .kitten: return "cat_\(rawValue)"
+        case .junior: return "cat_junior_\(rawValue)"
+        case .adult: return "cat_adult_\(rawValue)"
         }
     }
 }
@@ -36,6 +39,7 @@ enum ActiveSheet: Identifiable, Equatable {
     case diary
     case settings
     case orderDetail(CustomerOrder)
+    case basket
 
     var id: String {
         switch self {
@@ -43,6 +47,7 @@ enum ActiveSheet: Identifiable, Equatable {
         case .diary: "diary"
         case .settings: "settings"
         case .orderDetail(let order): "order-\(order.id)"
+        case .basket: "basket"
         }
     }
 }
@@ -57,6 +62,13 @@ enum OrderCardStatus: Equatable {
 struct PendingOrderDelivery: Equatable {
     let orderID: String
     var reservedCells: [Int]
+    let isWeekend: Bool
+
+    init(orderID: String, reservedCells: [Int], isWeekend: Bool = false) {
+        self.orderID = orderID
+        self.reservedCells = reservedCells
+        self.isWeekend = isWeekend
+    }
 }
 
 private struct PendingAdCompletion: Equatable {
@@ -77,21 +89,31 @@ final class DiaryAppStore {
     var activeScreen: AppScreen = .home
     var activeRoom: RoomID = .livingroom
     var activeSheet: ActiveSheet?
+    var selectedCatID: CatID = .primary
+    var isDecorating = false
 
     // Modals & transient UI feedback
     private(set) var photoQueue: [String] = []
     private(set) var levelUpQueue: [LevelUpModalItem] = []
+    private(set) var storyQueue: [StoryUnlock] = []
+    private(set) var arrivalModal: OutingArrival?
+    private(set) var showingAdoptionModal = false
+    private(set) var milestoneModal: MilestoneID?
     private(set) var activeAdOffer: AdOffer?
     private(set) var playingMockAdSlot: AdSlot?
     private(set) var offlineNoteID: String?
     private(set) var showingOfflineNote = false
     private(set) var catBubbleKey: String?
+    private(set) var xueqiuBubbleKey: String?
+    private(set) var strayBubbleKey: String?
     private(set) var transientCatPose: CatHomePose?
+    private(set) var xueqiuTransientPose: CatHomePose?
+    private(set) var xueqiuHangout: XueqiuHangout = .follow
     private(set) var luckyCells: Set<Int> = []
     private(set) var recentMergedCell: Int?
     private(set) var pendingOrderDeliveries: [PendingOrderDelivery] = []
 
-    // Debug / M1 testing toggles (exposed in Settings)
+    // Debug / testing toggles (exposed in Settings)
     var mockAdsEnabled: Bool = true {
         didSet {
             engine.adConfig.adEnabled = mockAdsEnabled
@@ -109,6 +131,7 @@ final class DiaryAppStore {
     @ObservationIgnored private let repository: any GameSaveRepository
     @ObservationIgnored private let clock: @Sendable () -> Date
     @ObservationIgnored private let calendar: Calendar
+    @ObservationIgnored private let userDefaults: UserDefaults
     @ObservationIgnored private let saveRetryDelays: [Duration]
     @ObservationIgnored private var engine: DiaryGameEngine
     @ObservationIgnored private var saveRetry = SaveRetryState()
@@ -119,26 +142,83 @@ final class DiaryAppStore {
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var poseTask: Task<Void, Never>?
+    @ObservationIgnored private var xueqiuPoseTask: Task<Void, Never>?
     @ObservationIgnored private var bubbleTask: Task<Void, Never>?
+    @ObservationIgnored private var xueqiuBubbleTask: Task<Void, Never>?
+    @ObservationIgnored private var strayBubbleTask: Task<Void, Never>?
+    @ObservationIgnored private var lastPresencePingMs: Int64 = 0
     @ObservationIgnored private var comboCount = 0
     @ObservationIgnored private var lastMergeAt: TimeInterval = -100
     @ObservationIgnored private var lastBubbleKey: String?
+    @ObservationIgnored private var lastXueqiuBubbleKey: String?
     @ObservationIgnored private var isForeground = true
     @ObservationIgnored private var homeTrack: GameMusicTrack
     @ObservationIgnored private var workshopTrack: GameMusicTrack
 
     var currentPhotoModalID: String? { photoQueue.first }
     var currentLevelUpModal: LevelUpModalItem? { photoQueue.isEmpty ? levelUpQueue.first : nil }
-    // AdOfferOverlayView is hidden behind sheets, photo/level-up modals, or mock ad playback in DiaryRootView.
+    var currentStoryModal: StoryUnlock? { storyQueue.first }
+
+    // AdOfferOverlayView is hidden behind sheets, decorate mode, or higher-priority modals in DiaryRootView.
     var canPresentAdOfferOverlay: Bool {
         isLoaded
             && isForeground
+            && !isDecorating
             && activeSheet == nil
             && currentPhotoModalID == nil
             && currentLevelUpModal == nil
+            && currentStoryModal == nil
+            && arrivalModal == nil
+            && !showingAdoptionModal
+            && milestoneModal == nil
             && playingMockAdSlot == nil
     }
+
     var reservedBoardCells: Set<Int> { Set(pendingOrderDeliveries.flatMap(\.reservedCells)) }
+
+    var isXiaojuOut: Bool { DiaryOuting.isCatOut(state, now: nowMs) }
+    var hasXueqiu: Bool { state.cats[.xueqiu] != nil }
+    var isStrayPresentAtEntrance: Bool { state.home.stray?.present == true && !hasXueqiu }
+    var isXueqiuInActiveRoom: Bool {
+        guard hasXueqiu, activeRoom != .entrance else { return false }
+        switch xueqiuHangout {
+        case .follow: return true
+        case .room(let room): return room == activeRoom
+        }
+    }
+    var unlockedRooms: [RoomID] {
+        RoomID.allCases.filter { DiaryProgression.roomUnlocked(state, room: $0, balance: engine.balance) }
+    }
+    var storedFurnitureIDs: [FurnitureID] { DiaryLayout.storedFurniture(in: state) }
+    var extraPhotoProgress: (got: Int, total: Int) { DiaryHome.extraPhotoProgress(state) }
+    var albumProgress: (got: Int, total: Int) { DiaryAlbum.progress(state) }
+    var isAlbumOpen: Bool { DiaryAlbum.isOpen(state) }
+    var treasureCount: Int { DiaryOuting.treasureCount(state) }
+    var reachedMilestones: [MilestoneID] {
+        DiaryMilestones.reached(state, now: nowMs, calendar: calendar, balance: engine.balance)
+    }
+    var isNightSaleActive: Bool {
+        DiaryThemes.isNightSaleTime(now: nowMs, calendar: calendar, balance: engine.balance)
+    }
+    var effectiveSelectedCatID: CatID {
+        (selectedCatID == .xueqiu && hasXueqiu) ? .xueqiu : .primary
+    }
+
+    func currentFurniturePrice(_ id: FurnitureID) -> Int {
+        DiaryThemes.priceNow(furniture: id, now: nowMs, calendar: calendar, balance: engine.balance)
+    }
+
+    func currentSkinPrice(_ id: RoomSkinID) -> Int {
+        DiaryThemes.priceNow(skin: id, now: nowMs, calendar: calendar, balance: engine.balance)
+    }
+
+    func isFurnitureOnSale(_ id: FurnitureID) -> Bool {
+        DiaryThemes.isOnNightSale(furniture: id, now: nowMs, calendar: calendar, balance: engine.balance)
+    }
+
+    func isSkinOnSale(_ id: RoomSkinID) -> Bool {
+        DiaryThemes.isOnNightSale(skin: id, now: nowMs, calendar: calendar, balance: engine.balance)
+    }
 
     func isOrderDeliveryPending(_ orderID: String) -> Bool {
         pendingOrderDeliveries.contains { $0.orderID == orderID }
@@ -149,8 +229,9 @@ final class DiaryAppStore {
     }
 
     func canDeliverOrder(_ order: CustomerOrder) -> Bool {
-        guard !isOrderDeliveryPending(order.id),
-              state.orders.active.contains(where: { $0.id == order.id }) else {
+        let isActive = state.orders.active.contains(where: { $0.id == order.id })
+            || state.orders.weekendOrder?.id == order.id
+        guard !isOrderDeliveryPending(order.id), isActive else {
             return false
         }
         return selectUnreservedCells(for: order.items, excluding: reservedBoardCells) != nil
@@ -189,7 +270,15 @@ final class DiaryAppStore {
     var photoProgress: (got: Int, total: Int) { DiaryHome.photoProgress(state) }
     var currentMusicTrack: GameMusicTrack { activeScreen == .home ? homeTrack : workshopTrack }
 
-    var displayedCatPose: CatHomePose {
+    var displayedCatPose: CatHomePose { displayedPose(for: .primary) }
+
+    func displayedPose(for catID: CatID) -> CatHomePose {
+        if catID == .xueqiu {
+            if let transient = xueqiuTransientPose { return transient }
+            if let xq = state.cats[.xueqiu], DiaryHome.isHungry(xq) { return .hungry }
+            if sceneLight == .night { return .sleep }
+            return .idle
+        }
         if let transient = transientCatPose { return transient }
         if DiaryHome.isHungry(state.primaryCat) && !state.tutorialActive { return .hungry }
         if sceneLight == .night && !state.tutorialActive { return .sleep }
@@ -201,10 +290,12 @@ final class DiaryAppStore {
         adService: (any RewardedAdService)? = nil,
         clock: @escaping @Sendable () -> Date = Date.init,
         calendar: Calendar = .current,
+        userDefaults: UserDefaults = .standard,
         saveRetryDelays: [Duration] = [.seconds(2), .seconds(5), .seconds(60)]
     ) {
         self.clock = clock
         self.calendar = calendar
+        self.userDefaults = userDefaults
         self.saveRetryDelays = saveRetryDelays.isEmpty ? [.seconds(2)] : saveRetryDelays
         let resolvedRepo: any GameSaveRepository
         if let repository {
@@ -240,11 +331,20 @@ final class DiaryAppStore {
             engine = DiaryGameEngine(state: loaded, adConfig: AdRemoteConfig(adEnabled: mockAdsEnabled), calendar: calendar)
             let startOut = engine.start(now: nowMs)
             syncStateAndApply(events: startOut.events, save: false)
+            if state.orders.storyBackpay > 0 {
+                let backpayOut = engine.takeStoryBackpay(now: nowMs)
+                syncStateAndApply(events: backpayOut.events, save: false)
+                if backpayOut.value > 0 {
+                    notices.show(GameStrings.format("story.backpayNotice", backpayOut.value))
+                }
+            }
             applyLanguagePreference()
             isLoaded = true
             loadError = nil
 
             let visit = engine.visitHome(now: nowMs)
+            lastPresencePingMs = nowMs
+            xueqiuHangout = DiaryAdoption.xueqiuHangout(engine.state, visitAt: nowMs, balance: engine.balance)
             syncStateAndApply(events: visit.events, save: true)
             if state.tutorialStep == .finish && !photoQueue.contains(DiaryCatalog.tutorialPhotoID) {
                 photoQueue.insert(DiaryCatalog.tutorialPhotoID, at: 0)
@@ -253,6 +353,7 @@ final class DiaryAppStore {
                 offlineNoteID = note
                 showingOfflineNote = true
             }
+            checkDayMilestoneIfNeeded()
             reconcileAudio()
         } catch {
             loadError = GameStrings.text("save.loadFailed")
@@ -267,6 +368,19 @@ final class DiaryAppStore {
         guard out.didMutate || engine.state != state else { return false }
         syncStateAndApply(events: out.events, save: true)
         return state.dayKey != previousDayKey
+    }
+
+    func tickHomePresence() {
+        guard isLoaded, isForeground, activeScreen == .home else { return }
+        _ = refreshDayIfNeeded()
+        if let outing = state.home.outing, nowMs >= outing.returnAt {
+            let out = engine.checkOuting(now: nowMs)
+            syncStateAndApply(events: out.events, save: true)
+        } else if DayClock.elapsedMs(from: lastPresencePingMs, to: nowMs) >= DayClock.minuteMs {
+            lastPresencePingMs = nowMs
+            let out = engine.stayHome(now: nowMs)
+            syncStateAndApply(events: out.events, save: true)
+        }
     }
 
     func retrySaveNow() {
@@ -288,11 +402,14 @@ final class DiaryAppStore {
             }
             if activeScreen == .home {
                 let visit = engine.visitHome(now: nowMs)
+                lastPresencePingMs = nowMs
+                xueqiuHangout = DiaryAdoption.xueqiuHangout(engine.state, visitAt: nowMs, balance: engine.balance)
                 syncStateAndApply(events: visit.events, save: true)
                 if let note = visit.value.offlineNoteID {
                     offlineNoteID = note
                     showingOfflineNote = true
                 }
+                checkDayMilestoneIfNeeded()
             }
         }
         reconcileAudio()
@@ -300,6 +417,7 @@ final class DiaryAppStore {
 
     func switchScreen(to screen: AppScreen) {
         guard activeScreen != screen else { return }
+        isDecorating = false
         expiredWishGuardGoal = nil
         if activeScreen == .home {
             let out = engine.leaveHome(now: nowMs)
@@ -309,23 +427,37 @@ final class DiaryAppStore {
         audio.play(.tap, userInitiated: true)
         if screen == .home {
             let visit = engine.visitHome(now: nowMs)
+            lastPresencePingMs = nowMs
+            xueqiuHangout = DiaryAdoption.xueqiuHangout(engine.state, visitAt: nowMs, balance: engine.balance)
             syncStateAndApply(events: visit.events, save: true)
             if let note = visit.value.offlineNoteID {
                 offlineNoteID = note
                 showingOfflineNote = true
             }
+            checkDayMilestoneIfNeeded()
         }
         reconcileAudio()
     }
 
     func selectRoom(_ room: RoomID) {
-        guard DiaryProgression.roomUnlocked(state, room: room) else {
-            let lv = DiaryProgression.unlockLevel(for: .room(room))
+        guard DiaryProgression.roomUnlocked(state, room: room, balance: engine.balance) else {
+            let lv = DiaryProgression.unlockLevel(for: .room(room), balance: engine.balance)
             notices.show(GameStrings.format("room.lockedNotice", lv))
             return
         }
         activeRoom = room
         audio.play(.tap, userInitiated: true)
+        if room == .entrance && !isDecorating {
+            let strayOut = engine.checkStray(now: nowMs)
+            if strayOut.value != nil {
+                syncStateAndApply(events: strayOut.events, save: true)
+            }
+        }
+    }
+
+    func selectCat(_ catID: CatID) {
+        guard state.cats[catID] != nil else { return }
+        selectedCatID = catID
     }
 
     // MARK: - Workshop Actions
@@ -439,11 +571,30 @@ final class DiaryAppStore {
             }
             return
         }
+        if let weekend = state.orders.weekendOrder, weekend.id == orderID {
+            deliverWeekendOrder()
+            return
+        }
         guard let order = state.orders.active.first(where: { $0.id == orderID }),
               let cells = selectUnreservedCells(for: order.items, excluding: reservedBoardCells) else {
             return
         }
-        pendingOrderDeliveries.append(PendingOrderDelivery(orderID: orderID, reservedCells: cells))
+        pendingOrderDeliveries.append(PendingOrderDelivery(orderID: orderID, reservedCells: cells, isWeekend: false))
+        scheduleSave(force: true, resetBackoff: true)
+    }
+
+    func deliverWeekendOrder() {
+        guard let order = state.orders.weekendOrder else { return }
+        if isOrderDeliveryPending(order.id) {
+            if !isSaving {
+                scheduleSave(force: true, resetBackoff: true)
+            }
+            return
+        }
+        guard let cells = selectUnreservedCells(for: order.items, excluding: reservedBoardCells) else {
+            return
+        }
+        pendingOrderDeliveries.append(PendingOrderDelivery(orderID: order.id, reservedCells: cells, isWeekend: true))
         scheduleSave(force: true, resetBackoff: true)
     }
 
@@ -463,77 +614,225 @@ final class DiaryAppStore {
         activeSheet = nil
     }
 
-    // MARK: - Home & Shop Actions
+    // MARK: - Home, Multi-Cat, Outing, Stray & Decorate Actions
 
-    func petCat() {
-        let out = engine.pet(now: nowMs)
+    func petCat(_ catID: CatID? = nil) {
+        let target = catID ?? effectiveSelectedCatID
+        selectedCatID = target
+        let out = engine.pet(now: nowMs, catID: target)
         switch out.value {
         case .petted:
             syncStateAndApply(events: out.events, save: true)
             audio.play(.pet, userInitiated: true)
             audio.playPetPurrHaptics()
-            showTransientPose(.pet, durationMs: 1300)
+            showTransientPose(.pet, for: target, durationMs: 1300)
+        case .failed(.outing):
+            syncStateAndApply(events: out.events, save: false)
+            notices.show(GameStrings.text("home.catOutNotice"))
         case .failed(.cooldown):
             syncStateAndApply(events: out.events, save: false)
-            let mood: CatBubbleMood = if DiaryHome.isHungry(state.primaryCat) && !state.tutorialActive {
+            let catState = state.cats[target] ?? state.primaryCat
+            let mood: CatBubbleMood = if DiaryHome.isHungry(catState) && !state.tutorialActive {
                 .hungry
             } else if sceneLight == .night && !state.tutorialActive {
                 .sleep
             } else {
                 .normal
             }
-            let key = DiaryCatalog.pickBubbleKey(mood: mood, excluding: lastBubbleKey, randomUnit: Double.random(in: 0..<1))
-            lastBubbleKey = key
-            showBubble(key: key)
+            let lastKey = target == .xueqiu ? lastXueqiuBubbleKey : lastBubbleKey
+            let key = DiaryCatalog.pickBubbleKey(mood: mood, cat: target, excluding: lastKey, randomUnit: Double.random(in: 0..<1))
+            if target == .xueqiu {
+                lastXueqiuBubbleKey = key
+            } else {
+                lastBubbleKey = key
+            }
+            showBubble(key: key, for: target)
             audio.play(.tap, userInitiated: true)
         case .failed:
             syncStateAndApply(events: out.events, save: false)
         }
     }
 
-    func playWithToy(at index: Int) {
+    func playWithToy(at index: Int, catID: CatID? = nil) {
+        let target = catID ?? effectiveSelectedCatID
+        if target == .xueqiu && !isXueqiuInActiveRoom {
+            notices.show(GameStrings.text("home.xueqiuNotHere"))
+            return
+        }
         guard state.home.toys.indices.contains(index) else { return }
         let item = state.home.toys[index].item
         if shouldAbortItemUseAfterMidnightWishChange(for: .play(item)) { return }
-        let out = engine.playWithToy(index: index, now: nowMs)
+        let out = engine.playWithToy(index: index, now: nowMs, catID: target)
         switch out.value {
         case .played(_, _, let wornOut):
             syncStateAndApply(events: out.events, save: true)
             audio.play(.catHappy, userInitiated: true)
-            showTransientPose(.play, durationMs: 1400)
+            showTransientPose(.play, for: target, durationMs: 1400)
             if wornOut { notices.show(GameStrings.text("home.toyWornOut")) }
+        case .failed(.outing):
+            syncStateAndApply(events: out.events, save: false)
+            notices.show(GameStrings.text("home.catOutNotice"))
         case .failed(.hungry):
             syncStateAndApply(events: out.events, save: false)
-            showBubble(key: "bubble.hungry.01")
-            notices.show(GameStrings.text("home.hungryRefusePlay"))
+            showBubble(key: target == .xueqiu ? "bubble.xueqiu.hungry.01" : "bubble.hungry.01", for: target)
+            notices.show(GameStrings.format("home.hungryRefusePlayCat", GameStrings.catName(target)))
         case .failed:
             syncStateAndApply(events: out.events, save: false)
         }
     }
 
-    func feedCat(at index: Int) {
+    func feedCat(at index: Int, catID: CatID? = nil) {
+        let target = catID ?? effectiveSelectedCatID
+        if target == .xueqiu && !isXueqiuInActiveRoom {
+            notices.show(GameStrings.text("home.xueqiuNotHere"))
+            return
+        }
         guard state.home.food.indices.contains(index) else { return }
         let item = state.home.food[index]
         if shouldAbortItemUseAfterMidnightWishChange(for: .feed(item)) { return }
-        let out = engine.feed(index: index, now: nowMs)
+        let out = engine.feed(index: index, now: nowMs, catID: target)
         switch out.value {
         case .fed:
             syncStateAndApply(events: out.events, save: true)
             audio.play(.feed, userInitiated: true)
-            showTransientPose(.eat, durationMs: 1600)
+            showTransientPose(.eat, for: target, durationMs: 1600)
+        case .failed(.outing):
+            syncStateAndApply(events: out.events, save: false)
+            notices.show(GameStrings.text("home.catOutNotice"))
         case .failed:
             syncStateAndApply(events: out.events, save: false)
         }
     }
 
-    func buyFurniture(_ id: FurnitureID) {
-        let out = engine.buyFurniture(id: id, now: nowMs)
+    func openPendingArrival() {
+        let out = engine.claimArrival(now: nowMs)
+        guard let arrival = out.value else { return }
+        arrivalModal = arrival
+        audio.play(.photo, userInitiated: true)
+        syncStateAndApply(events: out.events, save: true)
+    }
+
+    func dismissArrivalModal() {
+        arrivalModal = nil
+    }
+
+    func packBasket(source: BasketSource, index: Int) {
+        let out = engine.packBasket(source: source, index: index, now: nowMs)
+        if case .updated(let item) = out.value {
+            syncStateAndApply(events: out.events, save: true)
+            audio.play(.place, userInitiated: true)
+            notices.show(GameStrings.format("outing.basketPacked", GameStrings.itemName(item)))
+            if activeRoom == .entrance && item.isFood {
+                let strayOut = engine.checkStray(now: nowMs)
+                if strayOut.value != nil {
+                    syncStateAndApply(events: strayOut.events, save: true)
+                }
+            }
+        }
+    }
+
+    func unpackBasket() {
+        let out = engine.unpackBasket(now: nowMs)
+        if case .updated(let item) = out.value {
+            syncStateAndApply(events: out.events, save: true)
+            audio.play(.tap, userInitiated: true)
+            notices.show(GameStrings.format("outing.basketUnpacked", GameStrings.itemName(item)))
+        }
+    }
+
+    func recallXiaoju() {
+        let out = engine.recallCat(now: nowMs)
+        switch out.value {
+        case .recalled:
+            syncStateAndApply(events: out.events, save: true)
+            audio.play(.catHappy, userInitiated: true)
+            notices.show(GameStrings.text("outing.recalledNotice"))
+        case .failed(.usedToday):
+            notices.show(GameStrings.text("outing.recallUsed"))
+        case .failed(.notOut):
+            break
+        }
+    }
+
+    func meetStray() {
+        let out = engine.meetStray(now: nowMs)
+        guard case .met(let trust, let ate, let adopted, _, _) = out.value else { return }
+        syncStateAndApply(events: out.events, save: true)
+        audio.play(adopted ? .levelUp : .pet, userInitiated: true)
+        if adopted {
+            showingAdoptionModal = true
+            xueqiuHangout = .follow
+        } else if trust <= 1 {
+            showStrayBubble(key: "stray.bubble.peek")
+            notices.show(GameStrings.text("stray.met.1"))
+        } else if trust == 2 {
+            if let ate {
+                notices.show(GameStrings.format("stray.met.2", GameStrings.itemName(ate)))
+            } else {
+                notices.show(GameStrings.text("stray.met.2.fallback"))
+            }
+        } else if trust == 3 {
+            notices.show(GameStrings.text("stray.met.3"))
+        } else {
+            notices.show(GameStrings.text("stray.met.4"))
+        }
+    }
+
+    func dismissAdoptionModal() {
+        showingAdoptionModal = false
+    }
+
+    func enterDecorateMode() {
+        guard !state.home.furnitureOwned.isEmpty else {
+            notices.show(GameStrings.text("decorate.noFurniture"))
+            return
+        }
+        isDecorating = true
+        audio.play(.tap, userInitiated: true)
+    }
+
+    func exitDecorateMode() {
+        isDecorating = false
+        audio.play(.tap, userInitiated: true)
+    }
+
+    @discardableResult
+    func placeFurniture(_ id: FurnitureID, room: RoomID, x: Double, bottom: Double, flip: Bool? = nil) -> Bool {
+        let out = engine.placeFurniture(id: id, room: room, x: x, bottom: bottom, flip: flip, now: nowMs)
+        guard case .placed = out.value else { return false }
+        syncStateAndApply(events: out.events, save: true)
+        audio.play(.place, userInitiated: true)
+        return true
+    }
+
+    func toggleFurnitureFlip(_ id: FurnitureID) {
+        let out = engine.toggleFurnitureFlip(id: id, now: nowMs)
+        guard case .flipped = out.value else { return }
+        syncStateAndApply(events: out.events, save: true)
+        audio.play(.tap, userInitiated: true)
+    }
+
+    func storeFurniture(_ id: FurnitureID) {
+        let out = engine.storeFurniture(id: id, now: nowMs)
+        guard case .stored = out.value else { return }
+        syncStateAndApply(events: out.events, save: true)
+        audio.play(.tap, userInitiated: true)
+    }
+
+    func resetRoomLayout(_ room: RoomID) {
+        let out = engine.resetRoomLayout(room: room, now: nowMs)
+        syncStateAndApply(events: out.events, save: true)
+        audio.play(.tap, userInitiated: true)
+        notices.show(GameStrings.text("decorate.resetDone"))
+    }
+
+    func buyFurniture(_ id: FurnitureID, quoted: Int? = nil) {
+        let out = engine.buyFurniture(id: id, quoted: quoted, now: nowMs)
         switch out.value {
         case .bought(let furniture, _):
             syncStateAndApply(events: out.events, save: true)
             audio.play(.purchase, userInitiated: true)
             notices.show(GameStrings.format("shop.boughtNotice", GameStrings.furnitureName(furniture)))
-            // Xiaoju immediately tries newly bought furniture in the current room!
             let settle = engine.settleNewFurniture(now: nowMs)
             syncStateAndApply(events: settle.events, save: true)
             if let def = DiaryCatalog.furnitureDef(furniture) {
@@ -546,10 +845,52 @@ final class DiaryAppStore {
             notices.show(GameStrings.format("shop.wishlistPinned", GameStrings.furnitureName(id)))
         case .roomLocked(let room):
             syncStateAndApply(events: out.events, save: false)
-            let lv = DiaryProgression.unlockLevel(for: .room(room))
+            let lv = DiaryProgression.unlockLevel(for: .room(room), balance: engine.balance)
             notices.show(GameStrings.format("room.lockedNotice", lv))
+        case .themeLocked(let lv):
+            syncStateAndApply(events: out.events, save: false)
+            notices.show(GameStrings.format("shop.themeLocked", lv))
+        case .xueqiuLevel(let lv):
+            syncStateAndApply(events: out.events, save: false)
+            notices.show(GameStrings.format("shop.xueqiuLocked", lv))
+        case .priceChanged(let currentPrice):
+            syncStateAndApply(events: out.events, save: false)
+            notices.show(GameStrings.format("shop.priceChanged", currentPrice))
         case .owned, .notForSale:
             syncStateAndApply(events: out.events, save: false)
+        }
+    }
+
+    func buyRoomSkin(_ id: RoomSkinID, quoted: Int? = nil) {
+        let out = engine.buyRoomSkin(id: id, quoted: quoted, now: nowMs)
+        switch out.value {
+        case .applied(let skin, _):
+            syncStateAndApply(events: out.events, save: true)
+            audio.play(.purchase, userInitiated: true)
+            notices.show(GameStrings.format("shop.skinAppliedNotice", GameStrings.roomSkinName(skin)))
+        case .themeLocked(let lv):
+            syncStateAndApply(events: out.events, save: false)
+            notices.show(GameStrings.format("shop.themeLocked", lv))
+        case .priceChanged(let currentPrice):
+            syncStateAndApply(events: out.events, save: false)
+            notices.show(GameStrings.format("shop.priceChanged", currentPrice))
+        case .notEnoughCoins:
+            syncStateAndApply(events: out.events, save: false)
+            let price = currentSkinPrice(id)
+            notices.show(GameStrings.format("shop.shortCoins", max(0, price - state.coins)))
+        case .owned:
+            equipRoomSkin(id)
+        case .notOwned:
+            syncStateAndApply(events: out.events, save: false)
+        }
+    }
+
+    func equipRoomSkin(_ id: RoomSkinID) {
+        let out = engine.equipRoomSkin(id: id, now: nowMs)
+        if case .applied(let skin, _) = out.value {
+            syncStateAndApply(events: out.events, save: true)
+            audio.play(.tap, userInitiated: true)
+            notices.show(GameStrings.format("shop.skinAppliedNotice", GameStrings.roomSkinName(skin)))
         }
     }
 
@@ -574,6 +915,19 @@ final class DiaryAppStore {
     func dismissCurrentLevelUpModal() {
         guard !levelUpQueue.isEmpty else { return }
         levelUpQueue.removeFirst()
+    }
+
+    func dismissCurrentStoryModal() {
+        guard !storyQueue.isEmpty else { return }
+        storyQueue.removeFirst()
+    }
+
+    func showMilestone(_ id: MilestoneID) {
+        milestoneModal = id
+    }
+
+    func dismissMilestoneModal() {
+        milestoneModal = nil
     }
 
     func toggleOfflineNote() {
@@ -617,6 +971,11 @@ final class DiaryAppStore {
 
     func watchActiveAd() {
         guard let offer = activeAdOffer, pendingAdCompletions.isEmpty else { return }
+        if let invalidReason = engine.wageOfferInvalidReason(offer, now: nowMs) {
+            activeAdOffer = nil
+            notices.show(GameStrings.text(invalidReason == .affordable ? "ad.wageAffordable" : "ad.wagePriceUp"))
+            return
+        }
         activeAdOffer = nil
         let startOut = engine.startAd(offer: offer, now: nowMs)
         guard let claimID = startOut.value else {
@@ -673,6 +1032,8 @@ final class DiaryAppStore {
     }
 
     func resetProgress() {
+        let previousCreatedAt = state.createdAt
+        userDefaults.removeObject(forKey: seenDayMilestonesStorageKey(for: previousCreatedAt))
         stateGeneration &+= 1
         pendingOrderDeliveries.removeAll()
         pendingAdCompletions.removeAll()
@@ -680,9 +1041,15 @@ final class DiaryAppStore {
         let out = engine.resetProgress(now: nowMs)
         photoQueue.removeAll()
         levelUpQueue.removeAll()
+        storyQueue.removeAll()
+        arrivalModal = nil
+        showingAdoptionModal = false
+        milestoneModal = nil
         activeAdOffer = nil
         offlineNoteID = nil
         showingOfflineNote = false
+        isDecorating = false
+        selectedCatID = .primary
         activeScreen = .home
         activeRoom = .livingroom
         activeSheet = nil
@@ -691,6 +1058,30 @@ final class DiaryAppStore {
     }
 
     // MARK: - Internals
+
+    private func seenDayMilestonesStorageKey(for createdAt: Int64) -> String {
+        "CatLife.seenDayMilestones.\(createdAt)"
+    }
+
+    private func checkDayMilestoneIfNeeded() {
+        guard !state.tutorialActive else { return }
+        let key = seenDayMilestonesStorageKey(for: state.createdAt)
+        let savedRaw = userDefaults.stringArray(forKey: key) ?? []
+        let saved = savedRaw.compactMap(MilestoneID.init(rawValue:))
+        let res = DiaryMilestones.nextDayMilestone(
+            state,
+            now: nowMs,
+            seen: saved,
+            calendar: calendar,
+            balance: engine.balance
+        )
+        if res.seen != saved {
+            userDefaults.set(res.seen.map(\.rawValue), forKey: key)
+        }
+        if let show = res.show {
+            milestoneModal = show
+        }
+    }
 
     private func syncStateAndApply(events: [DiaryGameEvent], save: Bool) {
         let previousDayKey = state.dayKey
@@ -710,14 +1101,31 @@ final class DiaryAppStore {
             }
         }
         state = nextState
+        if selectedCatID == .xueqiu && state.cats[.xueqiu] == nil {
+            selectedCatID = .primary
+        }
         for event in events {
             switch event {
             case .photoTaken(_, let photoID):
                 if !photoQueue.contains(photoID) { photoQueue.append(photoID) }
                 audio.play(.photo)
-            case .levelUp(_, let level, let unlocks):
-                levelUpQueue.append(LevelUpModalItem(level: level, unlocks: unlocks))
+            case .levelUp(let cat, let level, let unlocks):
+                if cat == .primary {
+                    levelUpQueue.append(LevelUpModalItem(level: level, unlocks: unlocks))
+                }
                 audio.play(.levelUp)
+            case .storyUnlocked(let story):
+                if !storyQueue.contains(where: { $0.id == story.id }) {
+                    storyQueue.append(story)
+                }
+            case .strayArrived(let trust, let ate):
+                if trust == 0 {
+                    notices.show(GameStrings.text("stray.arrival.peek"))
+                } else if let ate {
+                    notices.show(GameStrings.format("stray.arrival.ate", GameStrings.itemName(ate)))
+                } else {
+                    notices.show(GameStrings.text("stray.arrival.rain"))
+                }
             case .wishCompleted(_, _, let bonusXP):
                 notices.show(GameStrings.format("wish.completedNotice", bonusXP))
             default:
@@ -812,33 +1220,59 @@ final class DiaryAppStore {
                         self.saveNeedsWrite = false
                         let baseState = self.state
                         let candidateEngine = self.engine.cloned()
-                        let out = candidateEngine.deliverOrder(
-                            orderID: delivery.orderID,
-                            preferredCells: delivery.reservedCells,
-                            now: saveNowMs
-                        )
-                        if case .delivered(let deliveredOrder, let wage, let gift, let replacement) = out.value.result {
-                            try await self.repository.save(candidateEngine.state, now: now)
-                            guard self.stateGeneration == generation else { continue }
-                            self.pendingOrderDeliveries.removeAll { $0.orderID == delivery.orderID }
-                            self.commitSavedOrderDelivery(
-                                delivery: delivery,
-                                baseState: baseState,
-                                candidateEngine: candidateEngine,
-                                commitEvents: out.events,
-                                wage: wage,
-                                gift: gift,
-                                replacement: replacement,
-                                saveNowMs: saveNowMs
+                        if delivery.isWeekend {
+                            let out = candidateEngine.deliverWeekendOrder(
+                                expectedID: delivery.orderID,
+                                preferredCells: delivery.reservedCells,
+                                now: saveNowMs
                             )
-                            await self.presentPersistedWageOfferIfEligible(
-                                for: deliveredOrder,
-                                generation: generation,
-                                floorNowMs: saveNowMs
-                            )
+                            if case .delivered(let deliveredWeekend, let wage, let gift, _) = out.value {
+                                try await self.repository.save(candidateEngine.state, now: now)
+                                guard self.stateGeneration == generation else { continue }
+                                self.pendingOrderDeliveries.removeAll { $0.orderID == delivery.orderID }
+                                self.commitSavedWeekendDelivery(
+                                    delivery: delivery,
+                                    deliveredOrder: deliveredWeekend,
+                                    baseState: baseState,
+                                    candidateEngine: candidateEngine,
+                                    commitEvents: out.events,
+                                    wage: wage,
+                                    gift: gift,
+                                    saveNowMs: saveNowMs
+                                )
+                            } else {
+                                self.pendingOrderDeliveries.removeAll { $0.orderID == delivery.orderID }
+                                try await self.repository.save(self.state, now: now)
+                            }
                         } else {
-                            self.pendingOrderDeliveries.removeAll { $0.orderID == delivery.orderID }
-                            try await self.repository.save(self.state, now: now)
+                            let out = candidateEngine.deliverOrder(
+                                orderID: delivery.orderID,
+                                preferredCells: delivery.reservedCells,
+                                now: saveNowMs
+                            )
+                            if case .delivered(let deliveredOrder, let wage, let gift, _, let replacement) = out.value.result {
+                                try await self.repository.save(candidateEngine.state, now: now)
+                                guard self.stateGeneration == generation else { continue }
+                                self.pendingOrderDeliveries.removeAll { $0.orderID == delivery.orderID }
+                                self.commitSavedOrderDelivery(
+                                    delivery: delivery,
+                                    baseState: baseState,
+                                    candidateEngine: candidateEngine,
+                                    commitEvents: out.events,
+                                    wage: wage,
+                                    gift: gift,
+                                    replacement: replacement,
+                                    saveNowMs: saveNowMs
+                                )
+                                await self.presentPersistedWageOfferIfEligible(
+                                    for: deliveredOrder,
+                                    generation: generation,
+                                    floorNowMs: saveNowMs
+                                )
+                            } else {
+                                self.pendingOrderDeliveries.removeAll { $0.orderID == delivery.orderID }
+                                try await self.repository.save(self.state, now: now)
+                            }
                         }
                     } else {
                         self.saveNeedsWrite = false
@@ -901,6 +1335,55 @@ final class DiaryAppStore {
         }
     }
 
+    private func commitSavedWeekendDelivery(
+        delivery: PendingOrderDelivery,
+        deliveredOrder: CustomerOrder,
+        baseState: DiaryGameState,
+        candidateEngine: DiaryGameEngine,
+        commitEvents: [DiaryGameEvent],
+        wage: Int,
+        gift: FurnitureID?,
+        saveNowMs: Int64
+    ) {
+        let commitNowMs = max(saveNowMs, max(self.state.updatedAt, self.nowMs))
+        var finalWage = wage
+        var finalGift = gift
+
+        if self.state == baseState {
+            let currentAdConfig = self.engine.adConfig
+            self.engine = candidateEngine
+            self.engine.adConfig = currentAdConfig
+            let dayOut = self.engine.refreshDay(now: commitNowMs)
+            if dayOut.didMutate {
+                self.syncStateAndApply(events: commitEvents + dayOut.events, save: false)
+                self.saveNeedsWrite = true
+            } else {
+                self.syncStateAndApply(events: commitEvents, save: false)
+            }
+        } else {
+            let liveOut = self.engine.deliverWeekendOrder(
+                expectedID: delivery.orderID,
+                fallbackOrder: deliveredOrder,
+                preferredCells: delivery.reservedCells,
+                now: commitNowMs
+            )
+            guard case .delivered(_, let liveWage, let liveGift, _) = liveOut.value else { return }
+            finalWage = liveWage
+            finalGift = liveGift
+            self.syncStateAndApply(events: liveOut.events, save: false)
+            self.saveNeedsWrite = true
+        }
+
+        if case .orderDetail(let sheetOrder) = self.activeSheet, sheetOrder.id == delivery.orderID {
+            self.activeSheet = nil
+        }
+        self.audio.play(.coins, userInitiated: true)
+        self.notices.show(GameStrings.format("weekend.delivered", finalWage))
+        if let finalGift {
+            self.notices.show(GameStrings.format("order.customerGift", GameStrings.furnitureName(finalGift)))
+        }
+    }
+
     private func commitSavedOrderDelivery(
         delivery: PendingOrderDelivery,
         baseState: DiaryGameState,
@@ -933,7 +1416,7 @@ final class DiaryAppStore {
                 fixedReplacement: replacement,
                 now: commitNowMs
             )
-            guard case .delivered(_, let liveWage, let liveGift, _) = liveOut.value.result else { return }
+            guard case .delivered(_, let liveWage, let liveGift, _, _) = liveOut.value.result else { return }
             finalWage = liveWage
             finalGift = liveGift
             self.syncStateAndApply(events: liveOut.events, save: false)
@@ -977,6 +1460,7 @@ final class DiaryAppStore {
                 order: deliveredOrder,
                 config: offerEngine.adConfig,
                 now: offerNowMs,
+                calendar: self.calendar,
                 balance: offerEngine.balance
             ),
             offerEngine.offerStillAllowed(.wage(bonus), now: offerNowMs) else {
@@ -987,7 +1471,6 @@ final class DiaryAppStore {
                 try await self.repository.save(offerEngine.state, now: DayClock.date(fromEpochMs: offerNowMs))
                 wroteUnshownOfferToDisk = true
             } catch {
-                // Skip showing optional wage invitation if its cooldown timestamp could not be persisted.
                 break
             }
             guard self.stateGeneration == generation,
@@ -1017,6 +1500,7 @@ final class DiaryAppStore {
                     order: deliveredOrder,
                     config: self.engine.adConfig,
                     now: postSaveNowMs,
+                    calendar: self.calendar,
                     balance: self.engine.balance
                 ),
                 self.engine.offerStillAllowed(.wage(liveBonus), now: postSaveNowMs) else {
@@ -1049,8 +1533,8 @@ final class DiaryAppStore {
 
     private func scheduleAutomaticSaveRetry() {
         retryTask?.cancel()
-        let delayIndex = min(saveRetryDelays.count - 1, max(0, saveRetry.failures - 1))
-        let delay = saveRetryDelays[delayIndex]
+        let resolvedIndex = min(saveRetryDelays.count - 1, max(0, saveRetry.failures - 1))
+        let delay = saveRetryDelays[resolvedIndex]
         retryTask = Task { [weak self] in
             do {
                 try await Task.sleep(for: delay)
@@ -1081,23 +1565,53 @@ final class DiaryAppStore {
         )
     }
 
-    private func showTransientPose(_ pose: CatHomePose, durationMs: Int) {
-        poseTask?.cancel()
-        transientCatPose = pose
-        poseTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(durationMs))
-            guard let self, !Task.isCancelled else { return }
-            self.transientCatPose = nil
+    private func showTransientPose(_ pose: CatHomePose, for catID: CatID, durationMs: Int) {
+        if catID == .xueqiu {
+            xueqiuPoseTask?.cancel()
+            xueqiuTransientPose = pose
+            xueqiuPoseTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(durationMs))
+                guard let self, !Task.isCancelled else { return }
+                self.xueqiuTransientPose = nil
+            }
+        } else {
+            poseTask?.cancel()
+            transientCatPose = pose
+            poseTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(durationMs))
+                guard let self, !Task.isCancelled else { return }
+                self.transientCatPose = nil
+            }
         }
     }
 
-    private func showBubble(key: String) {
-        bubbleTask?.cancel()
-        catBubbleKey = key
-        bubbleTask = Task { [weak self] in
+    private func showBubble(key: String, for catID: CatID) {
+        if catID == .xueqiu {
+            xueqiuBubbleTask?.cancel()
+            xueqiuBubbleKey = key
+            xueqiuBubbleTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(2200))
+                guard let self, !Task.isCancelled else { return }
+                self.xueqiuBubbleKey = nil
+            }
+        } else {
+            bubbleTask?.cancel()
+            catBubbleKey = key
+            bubbleTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(2200))
+                guard let self, !Task.isCancelled else { return }
+                self.catBubbleKey = nil
+            }
+        }
+    }
+
+    private func showStrayBubble(key: String) {
+        strayBubbleTask?.cancel()
+        strayBubbleKey = key
+        strayBubbleTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(2200))
             guard let self, !Task.isCancelled else { return }
-            self.catBubbleKey = nil
+            self.strayBubbleKey = nil
         }
     }
 }

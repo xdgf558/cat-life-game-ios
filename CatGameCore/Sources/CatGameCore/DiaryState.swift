@@ -58,6 +58,107 @@ public struct OwnedToy: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public struct BasketItem: Codable, Equatable, Sendable {
+    public let item: MergeItem
+    public let usesLeft: Int?
+
+    public init(item: MergeItem, usesLeft: Int? = nil) {
+        self.item = item
+        self.usesLeft = usesLeft
+    }
+}
+
+public struct OutingState: Codable, Equatable, Sendable {
+    public let departAt: Int64
+    public let returnAt: Int64
+    public let packedItem: MergeItem?
+    public let spot: OutingSpot
+
+    public init(departAt: Int64, returnAt: Int64, packedItem: MergeItem?, spot: OutingSpot) {
+        self.departAt = departAt
+        self.returnAt = returnAt
+        self.packedItem = packedItem
+        self.spot = spot
+    }
+}
+
+public struct NeighborNote: Codable, Equatable, Sendable {
+    public let customer: CustomerID
+    public let noteIndex: Int
+
+    public init(customer: CustomerID, noteIndex: Int) {
+        self.customer = customer
+        self.noteIndex = noteIndex
+    }
+
+    public var localizationKey: String {
+        String(format: "neighborNote.%@.%02d", customer.rawValue, noteIndex + 1)
+    }
+}
+
+public struct OutingArrival: Codable, Equatable, Sendable {
+    public let returnedAt: Int64
+    public let spot: OutingSpot
+    public let packedItem: MergeItem?
+    public let treasure: TreasureID
+    public let isNewTreasure: Bool
+    public let count: Int
+    public let bonusCoins: Int
+    public let bonusMood: Double
+    public let bonusPhoto: String?
+    public let neighborNote: NeighborNote?
+
+    public init(
+        returnedAt: Int64,
+        spot: OutingSpot,
+        packedItem: MergeItem?,
+        treasure: TreasureID,
+        isNewTreasure: Bool,
+        count: Int,
+        bonusCoins: Int,
+        bonusMood: Double,
+        bonusPhoto: String?,
+        neighborNote: NeighborNote?
+    ) {
+        self.returnedAt = returnedAt
+        self.spot = spot
+        self.packedItem = packedItem
+        self.treasure = treasure
+        self.isNewTreasure = isNewTreasure
+        self.count = count
+        self.bonusCoins = bonusCoins
+        self.bonusMood = bonusMood
+        self.bonusPhoto = bonusPhoto
+        self.neighborNote = neighborNote
+    }
+}
+
+public struct TreasureRecord: Codable, Equatable, Sendable {
+    public var count: Int
+    public var firstAt: Int64
+    public var lastAt: Int64?
+
+    public init(count: Int, firstAt: Int64, lastAt: Int64? = nil) {
+        self.count = count
+        self.firstAt = firstAt
+        self.lastAt = lastAt
+    }
+}
+
+public struct StrayState: Codable, Equatable, Sendable {
+    public var trust: Int
+    public var lastSeenAt: Int64?
+    public var present: Bool
+    public var ate: MergeItem?
+
+    public init(trust: Int = 0, lastSeenAt: Int64? = nil, present: Bool = false, ate: MergeItem? = nil) {
+        self.trust = trust
+        self.lastSeenAt = lastSeenAt
+        self.present = present
+        self.ate = ate
+    }
+}
+
 public struct CatFlags: Codable, Equatable, Sendable {
     public var toyWornOut: Bool
     public var hungry: Bool
@@ -153,6 +254,59 @@ public struct OrdersState: Codable, Equatable, Sendable {
     public var completedTotal: Int
     public var customerProgress: [CustomerID: Int]
     public var materialAdOrderIDs: [String]
+    public var storiesSeen: [String]
+    public var weekendOrder: CustomerOrder?
+    public var weekendDoneWeek: Int?
+    public var storyBackpay: Int
+
+    public init(
+        active: [CustomerOrder],
+        nextID: Int,
+        rerollsUsedToday: Int,
+        completedTotal: Int,
+        customerProgress: [CustomerID: Int],
+        materialAdOrderIDs: [String],
+        storiesSeen: [String] = [],
+        weekendOrder: CustomerOrder? = nil,
+        weekendDoneWeek: Int? = nil,
+        storyBackpay: Int = 0
+    ) {
+        self.active = active
+        self.nextID = nextID
+        self.rerollsUsedToday = rerollsUsedToday
+        self.completedTotal = completedTotal
+        self.customerProgress = customerProgress
+        self.materialAdOrderIDs = materialAdOrderIDs
+        self.storiesSeen = storiesSeen
+        self.weekendOrder = weekendOrder
+        self.weekendDoneWeek = weekendDoneWeek
+        self.storyBackpay = storyBackpay
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case active, nextID, rerollsUsedToday, completedTotal, customerProgress, materialAdOrderIDs
+        case storiesSeen, weekendOrder, weekendDoneWeek, storyBackpay
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        active = try c.decode([CustomerOrder].self, forKey: .active)
+        nextID = try c.decode(Int.self, forKey: .nextID)
+        rerollsUsedToday = try c.decode(Int.self, forKey: .rerollsUsedToday)
+        completedTotal = try c.decode(Int.self, forKey: .completedTotal)
+        customerProgress = try c.decode([CustomerID: Int].self, forKey: .customerProgress)
+        materialAdOrderIDs = try c.decode([String].self, forKey: .materialAdOrderIDs)
+        // Preserve compatibility with M1 saves that predate stories & weekend commissions.
+        if let seen = try c.decodeIfPresent([String].self, forKey: .storiesSeen) {
+            storiesSeen = seen
+            storyBackpay = try c.decodeIfPresent(Int.self, forKey: .storyBackpay) ?? 0
+        } else {
+            storiesSeen = DiaryStories.storiesSeen(for: customerProgress)
+            storyBackpay = DiaryStories.storyBackpay(for: customerProgress)
+        }
+        weekendOrder = try c.decodeIfPresent(CustomerOrder.self, forKey: .weekendOrder)
+        weekendDoneWeek = try c.decodeIfPresent(Int.self, forKey: .weekendDoneWeek)
+    }
 }
 
 public struct HomeState: Codable, Equatable, Sendable {
@@ -163,6 +317,91 @@ public struct HomeState: Codable, Equatable, Sendable {
     public var lastVisitAt: Int64?
     public var wishlist: FurnitureID?
     public var wish: DailyWish?
+    // M2 additions (decoded with safe defaults for M1 saves)
+    public var stray: StrayState?
+    public var skinsOwned: [RoomSkinID]
+    public var activeSkin: RoomSkinID
+    public var basket: BasketItem?
+    public var outing: OutingState?
+    public var pendingArrival: OutingArrival?
+    public var treasures: [TreasureID: TreasureRecord]
+    public var outingsToday: Int
+    public var outingsDay: Int
+    public var recallUsedToday: Bool
+    public var awaySatiety: Double?
+    public var awayMood: Double?
+
+    public init(
+        toys: [OwnedToy],
+        food: [MergeItem],
+        furnitureOwned: [FurnitureID],
+        layout: [PlacedFurniture],
+        lastVisitAt: Int64?,
+        wishlist: FurnitureID?,
+        wish: DailyWish?,
+        stray: StrayState? = nil,
+        skinsOwned: [RoomSkinID] = [.defaultSkin],
+        activeSkin: RoomSkinID = .defaultSkin,
+        basket: BasketItem? = nil,
+        outing: OutingState? = nil,
+        pendingArrival: OutingArrival? = nil,
+        treasures: [TreasureID: TreasureRecord] = [:],
+        outingsToday: Int = 0,
+        outingsDay: Int = 0,
+        recallUsedToday: Bool = false,
+        awaySatiety: Double? = nil,
+        awayMood: Double? = nil
+    ) {
+        self.toys = toys
+        self.food = food
+        self.furnitureOwned = furnitureOwned
+        self.layout = layout
+        self.lastVisitAt = lastVisitAt
+        self.wishlist = wishlist
+        self.wish = wish
+        self.stray = stray
+        self.skinsOwned = skinsOwned
+        self.activeSkin = activeSkin
+        self.basket = basket
+        self.outing = outing
+        self.pendingArrival = pendingArrival
+        self.treasures = treasures
+        self.outingsToday = outingsToday
+        self.outingsDay = outingsDay
+        self.recallUsedToday = recallUsedToday
+        self.awaySatiety = awaySatiety
+        self.awayMood = awayMood
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case toys, food, furnitureOwned, layout, lastVisitAt, wishlist, wish
+        case stray, skinsOwned, activeSkin
+        case basket, outing, pendingArrival, treasures, outingsToday, outingsDay, recallUsedToday
+        case awaySatiety, awayMood
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        toys = try c.decode([OwnedToy].self, forKey: .toys)
+        food = try c.decode([MergeItem].self, forKey: .food)
+        furnitureOwned = try c.decode([FurnitureID].self, forKey: .furnitureOwned)
+        layout = try c.decode([PlacedFurniture].self, forKey: .layout)
+        lastVisitAt = try c.decodeIfPresent(Int64.self, forKey: .lastVisitAt)
+        wishlist = try c.decodeIfPresent(FurnitureID.self, forKey: .wishlist)
+        wish = try c.decodeIfPresent(DailyWish.self, forKey: .wish)
+        stray = try c.decodeIfPresent(StrayState.self, forKey: .stray)
+        skinsOwned = try c.decodeIfPresent([RoomSkinID].self, forKey: .skinsOwned) ?? [.defaultSkin]
+        activeSkin = try c.decodeIfPresent(RoomSkinID.self, forKey: .activeSkin) ?? .defaultSkin
+        basket = try c.decodeIfPresent(BasketItem.self, forKey: .basket)
+        outing = try c.decodeIfPresent(OutingState.self, forKey: .outing)
+        pendingArrival = try c.decodeIfPresent(OutingArrival.self, forKey: .pendingArrival)
+        treasures = try c.decodeIfPresent([TreasureID: TreasureRecord].self, forKey: .treasures) ?? [:]
+        outingsToday = try c.decodeIfPresent(Int.self, forKey: .outingsToday) ?? 0
+        outingsDay = try c.decodeIfPresent(Int.self, forKey: .outingsDay) ?? 0
+        recallUsedToday = try c.decodeIfPresent(Bool.self, forKey: .recallUsedToday) ?? false
+        awaySatiety = try c.decodeIfPresent(Double.self, forKey: .awaySatiety)
+        awayMood = try c.decodeIfPresent(Double.self, forKey: .awayMood)
+    }
 }
 
 public struct DiaryAlbumState: Codable, Equatable, Sendable {
@@ -271,6 +510,10 @@ public struct DiaryGameState: Codable, Equatable, Sendable {
         set { cats[.xiaoju] = newValue }
     }
 
+    public var residentCatIDs: [CatID] {
+        CatID.allCases.filter { cats[$0] != nil }
+    }
+
     public var progressLevel: Int { primaryCat.level }
 
     public var isValid: Bool {
@@ -303,12 +546,81 @@ public struct DiaryGameState: Codable, Equatable, Sendable {
               orders.nextID >= 1,
               orders.rerollsUsedToday >= 0,
               orders.completedTotal >= 0,
+              orders.storyBackpay >= 0,
               ads.nextClaimSeq >= 1 else {
+            return false
+        }
+        if let weekendDone = orders.weekendDoneWeek, !DayClock.isValidDayKey(weekendDone) {
+            return false
+        }
+        if let weekend = orders.weekendOrder, (weekend.wage <= 0 || weekend.items.isEmpty) {
             return false
         }
         let maxToyUses = DiaryBalance.default.cat.toyUses
         for toy in home.toys {
             guard toy.usesLeft >= 1, toy.usesLeft <= maxToyUses else { return false }
+        }
+        if let basket = home.basket {
+            guard basket.item.level >= DiaryBalance.default.cat.minUsableLevel else { return false }
+            if basket.item.isFood {
+                guard basket.usesLeft == nil else { return false }
+            } else if let uses = basket.usesLeft {
+                guard uses >= 1, uses <= maxToyUses else { return false }
+            }
+        }
+        if let outing = home.outing {
+            guard DayClock.isValidTimestamp(outing.departAt),
+                  DayClock.isValidTimestamp(outing.returnAt),
+                  outing.returnAt >= outing.departAt else {
+                return false
+            }
+        }
+        if let arrival = home.pendingArrival {
+            guard DayClock.isValidTimestamp(arrival.returnedAt),
+                  arrival.count >= 1,
+                  arrival.bonusCoins >= 0,
+                  arrival.bonusMood.isFinite, arrival.bonusMood >= 0 else {
+                return false
+            }
+        }
+        for record in home.treasures.values {
+            guard record.count >= 1, DayClock.isValidTimestamp(record.firstAt) else { return false }
+            if let lastAt = record.lastAt, !DayClock.isValidTimestamp(lastAt) { return false }
+        }
+        guard home.outingsToday >= 0,
+              (home.outingsDay == 0 || DayClock.isValidDayKey(home.outingsDay)) else {
+            return false
+        }
+        if let awaySatiety = home.awaySatiety,
+           (!awaySatiety.isFinite || !(0.0...100.0).contains(awaySatiety)) {
+            return false
+        }
+        if let awayMood = home.awayMood,
+           (!awayMood.isFinite || !(0.0...100.0).contains(awayMood)) {
+            return false
+        }
+        if let stray = home.stray {
+            guard stray.trust >= 0, stray.trust <= DiaryBalance.default.adoption.trustToAdopt else {
+                return false
+            }
+            if let lastSeenAt = stray.lastSeenAt, !DayClock.isValidTimestamp(lastSeenAt) {
+                return false
+            }
+            if let ate = stray.ate, !ate.isFood {
+                return false
+            }
+        }
+        guard home.skinsOwned.contains(.defaultSkin),
+              home.skinsOwned.contains(home.activeSkin) else {
+            return false
+        }
+        let ownedSet = Set(home.furnitureOwned)
+        for placed in home.layout {
+            guard ownedSet.contains(placed.id),
+                  placed.x.isFinite, (0.0...1.0).contains(placed.x),
+                  placed.bottom.isFinite, (0.0...1.0).contains(placed.bottom) else {
+                return false
+            }
         }
         guard board.cells.count == DiaryBalance.default.board.cellCount else { return false }
         guard energy.current >= 0, energy.current <= DiaryBalance.default.energy.max else { return false }
@@ -340,6 +652,7 @@ public struct DiaryGameState: Codable, Equatable, Sendable {
         ads.disabledToday = []
         ads.offeredTargetIDs = []
         ads.offeredMaterialKeys = []
+        home.recallUsedToday = false
         return true
     }
 

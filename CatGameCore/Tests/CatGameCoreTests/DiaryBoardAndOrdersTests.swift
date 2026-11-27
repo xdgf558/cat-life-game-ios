@@ -71,13 +71,14 @@ final class DiaryBoardAndOrdersTests: XCTestCase {
         state.board.cells[0] = ball
         var rng = SeededRNG(seed: 42)
         let res = DiaryOrders.deliverOrder(&state, orderID: "o1", rng: &rng)
-        guard case .delivered(let delivered, let wage, let gift, let replacement) = res else {
+        guard case .delivered(let delivered, let wage, let gift, let story, let replacement) = res else {
             return XCTFail("Expected order delivery")
         }
         XCTAssertEqual(delivered.id, "o1")
         XCTAssertEqual(wage, 10)
         XCTAssertEqual(state.coins, 10)
         XCTAssertEqual(gift, .giftAjian)
+        XCTAssertEqual(story?.milestone, 20)
         XCTAssertTrue(state.home.furnitureOwned.contains(.giftAjian))
         XCTAssertEqual(state.orders.active.first?.id, replacement.id)
     }
