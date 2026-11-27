@@ -1,10 +1,10 @@
 # 打工养猫日记 · 原生 iOS
 
-本仓库独立维护「打工养猫日记」的原生 iOS App，采用 SwiftUI、SpriteKit 和本地 Foundation 核心包，最低 iOS 17；支持简体中文、繁体中文和 English。游戏进度保存在设备本地，提供原生备份导入与导出。
+本仓库独立维护「打工养猫日记」的原生 iOS App，采用 SwiftUI、SpriteKit 和本地 Foundation 核心包，最低 iOS 17；支持简体中文、繁体中文和 English。游戏进度保存在设备本地，支持自动备份恢复。
 
 ## 当前状态
 
-当前源码准备 **1.0（69）** App Store 正式版。此前的 TestFlight 版本为 **0.23.0（68）**；正式版的构建、提交和审核状态以实际发布记录为准。
+当前源码准备 **2.0.0（70）**《养猫日记本》M1 原生改版候选版（PR 审查中，未上传 TestFlight）。改版前 `1.0（69）` 已打标签 `archive/ios-v1.0-build69`；新玩法独立写入 `cat-diary-save-v1.json`，不读取或覆盖旧版 `cat-life-native-v1.json`。此前的 TestFlight 版本为 **0.23.0（68）**。
 
 ## 获取资源与运行（唯一现行入口）
 
