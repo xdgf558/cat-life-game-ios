@@ -55,6 +55,16 @@ public final class DiaryGameEngine {
         self.calendar = calendar
     }
 
+    public func cloned() -> DiaryGameEngine {
+        DiaryGameEngine(
+            state: state,
+            balance: balance,
+            adConfig: adConfig,
+            rng: rng,
+            calendar: calendar
+        )
+    }
+
     public func sceneLight(now: Int64) -> SceneLight {
         DiaryHome.sceneLight(now: now, savedDayKey: state.dayKey, balance: balance, calendar: calendar)
     }

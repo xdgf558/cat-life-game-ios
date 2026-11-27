@@ -89,6 +89,8 @@ final class DiaryAppStore {
     @ObservationIgnored private var engine: DiaryGameEngine
     @ObservationIgnored private var saveRetry = SaveRetryState()
     @ObservationIgnored private var saveNeedsWrite = false
+    @ObservationIgnored private var pendingOrderDeliveryID: String?
+    @ObservationIgnored private var expiredWishGuardGoal: WishGoal?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var poseTask: Task<Void, Never>?
@@ -183,10 +185,11 @@ final class DiaryAppStore {
     @discardableResult
     func refreshDayIfNeeded() -> Bool {
         guard isLoaded else { return false }
+        let previousDayKey = state.dayKey
         let out = engine.refreshDay(now: nowMs)
-        guard out.didMutate else { return false }
+        guard out.didMutate || engine.state != state else { return false }
         syncStateAndApply(events: out.events, save: true)
-        return true
+        return state.dayKey != previousDayKey
     }
 
     func retrySaveNow() {
@@ -203,7 +206,9 @@ final class DiaryAppStore {
             }
         } else if !wasForeground, foreground, isLoaded {
             let dayOut = engine.refreshDay(now: nowMs)
-            if dayOut.didMutate { syncStateAndApply(events: dayOut.events, save: true) }
+            if dayOut.didMutate || engine.state != state {
+                syncStateAndApply(events: dayOut.events, save: true)
+            }
             if activeScreen == .home {
                 let visit = engine.visitHome(now: nowMs)
                 syncStateAndApply(events: visit.events, save: true)
@@ -218,6 +223,7 @@ final class DiaryAppStore {
 
     func switchScreen(to screen: AppScreen) {
         guard activeScreen != screen else { return }
+        expiredWishGuardGoal = nil
         if activeScreen == .home {
             let out = engine.leaveHome(now: nowMs)
             syncStateAndApply(events: out.events, save: true)
@@ -263,6 +269,7 @@ final class DiaryAppStore {
                 notices.show(GameStrings.text("workshop.sentToPending"))
             }
         case .locked:
+            syncStateAndApply(events: out.events, save: false)
             let lv = DiaryProgression.unlockLevel(for: .chain(chain))
             notices.show(GameStrings.format("workshop.chainLocked", lv))
         case .noEnergy:
@@ -297,6 +304,7 @@ final class DiaryAppStore {
     func claimPending() {
         let out = engine.claimPending(now: nowMs)
         guard out.value != nil else {
+            syncStateAndApply(events: out.events, save: false)
             notices.show(GameStrings.text("workshop.boardFull"))
             return
         }
@@ -306,7 +314,10 @@ final class DiaryAppStore {
 
     func sellItem(at index: Int) {
         let out = engine.sellItem(at: index, now: nowMs)
-        guard out.value > 0 else { return }
+        guard out.value > 0 else {
+            syncStateAndApply(events: out.events, save: false)
+            return
+        }
         syncStateAndApply(events: out.events, save: true)
         audio.play(.coins, userInitiated: true)
         notices.show(GameStrings.format("workshop.soldCoins", out.value))
@@ -323,9 +334,10 @@ final class DiaryAppStore {
                 switchScreen(to: .home)
             }
         case .levelTooLow:
+            syncStateAndApply(events: out.events, save: false)
             notices.show(GameStrings.text("workshop.bringHomeLevelTooLow"))
         case .empty:
-            break
+            syncStateAndApply(events: out.events, save: false)
         }
     }
 
@@ -341,24 +353,18 @@ final class DiaryAppStore {
     }
 
     func deliverOrder(_ orderID: String) {
-        let out = engine.deliverOrder(orderID: orderID, now: nowMs)
-        guard case .delivered(_, let wage, let gift, _) = out.value.result else { return }
-        syncStateAndApply(events: out.events, save: true)
-        audio.play(.coins, userInitiated: true)
-        notices.show(GameStrings.format("order.deliveredCoins", wage))
-        if let gift {
-            notices.show(GameStrings.format("order.customerGift", GameStrings.furnitureName(gift)))
-        }
-        if let bonus = out.value.bonusOffer,
-           adService.isReady(slot: .wage),
-           engine.offerStillAllowed(.wage(bonus), now: nowMs) {
-            presentAdOffer(.wage(bonus))
-        }
+        guard let order = state.orders.active.first(where: { $0.id == orderID }),
+              DiaryOrders.canDeliver(state, order: order) else { return }
+        if pendingOrderDeliveryID == orderID && isSaving { return }
+        pendingOrderDeliveryID = orderID
+        scheduleSave(force: true, resetBackoff: true)
     }
 
     func rerollOrder(_ orderID: String) {
+        if pendingOrderDeliveryID == orderID { pendingOrderDeliveryID = nil }
         let out = engine.rerollOrder(orderID: orderID, now: nowMs)
         guard out.value != nil else {
+            syncStateAndApply(events: out.events, save: false)
             notices.show(GameStrings.text("order.rerollUsed"))
             return
         }
@@ -378,6 +384,7 @@ final class DiaryAppStore {
             audio.playPetPurrHaptics()
             showTransientPose(.pet, durationMs: 1300)
         case .failed(.cooldown):
+            syncStateAndApply(events: out.events, save: false)
             let mood: CatBubbleMood = if DiaryHome.isHungry(state.primaryCat) && !state.tutorialActive {
                 .hungry
             } else if sceneLight == .night && !state.tutorialActive {
@@ -390,14 +397,14 @@ final class DiaryAppStore {
             showBubble(key: key)
             audio.play(.tap, userInitiated: true)
         case .failed:
-            break
+            syncStateAndApply(events: out.events, save: false)
         }
     }
 
     func playWithToy(at index: Int) {
         guard state.home.toys.indices.contains(index) else { return }
         let item = state.home.toys[index].item
-        if handleMidnightWishRollover(beforeConsuming: .play(item)) { return }
+        if shouldAbortItemUseAfterMidnightWishChange(for: .play(item)) { return }
         let out = engine.playWithToy(index: index, now: nowMs)
         switch out.value {
         case .played(_, _, let wornOut):
@@ -406,17 +413,18 @@ final class DiaryAppStore {
             showTransientPose(.play, durationMs: 1400)
             if wornOut { notices.show(GameStrings.text("home.toyWornOut")) }
         case .failed(.hungry):
+            syncStateAndApply(events: out.events, save: false)
             showBubble(key: "bubble.hungry.01")
             notices.show(GameStrings.text("home.hungryRefusePlay"))
         case .failed:
-            break
+            syncStateAndApply(events: out.events, save: false)
         }
     }
 
     func feedCat(at index: Int) {
         guard state.home.food.indices.contains(index) else { return }
         let item = state.home.food[index]
-        if handleMidnightWishRollover(beforeConsuming: .feed(item)) { return }
+        if shouldAbortItemUseAfterMidnightWishChange(for: .feed(item)) { return }
         let out = engine.feed(index: index, now: nowMs)
         switch out.value {
         case .fed:
@@ -424,7 +432,7 @@ final class DiaryAppStore {
             audio.play(.feed, userInitiated: true)
             showTransientPose(.eat, durationMs: 1600)
         case .failed:
-            break
+            syncStateAndApply(events: out.events, save: false)
         }
     }
 
@@ -447,10 +455,11 @@ final class DiaryAppStore {
             syncStateAndApply(events: wishOut.events, save: true)
             notices.show(GameStrings.format("shop.wishlistPinned", GameStrings.furnitureName(id)))
         case .roomLocked(let room):
+            syncStateAndApply(events: out.events, save: false)
             let lv = DiaryProgression.unlockLevel(for: .room(room))
             notices.show(GameStrings.format("room.lockedNotice", lv))
         case .owned, .notForSale:
-            break
+            syncStateAndApply(events: out.events, save: false)
         }
     }
 
@@ -489,6 +498,7 @@ final class DiaryAppStore {
             self?.adService.isReady(slot: .material) == true
         }
         guard let offer = out.value else {
+            syncStateAndApply(events: out.events, save: false)
             notices.show(GameStrings.text("workshop.noEnergyNotice"))
             return
         }
@@ -514,6 +524,7 @@ final class DiaryAppStore {
         activeAdOffer = nil
         let startOut = engine.startAd(offer: offer, now: nowMs)
         guard let claimID = startOut.value else {
+            syncStateAndApply(events: startOut.events, save: false)
             notices.show(GameStrings.text("ad.unavailable"))
             return
         }
@@ -565,6 +576,8 @@ final class DiaryAppStore {
     }
 
     func resetProgress() {
+        pendingOrderDeliveryID = nil
+        expiredWishGuardGoal = nil
         let out = engine.resetProgress(now: nowMs)
         photoQueue.removeAll()
         levelUpQueue.removeAll()
@@ -581,7 +594,23 @@ final class DiaryAppStore {
     // MARK: - Internals
 
     private func syncStateAndApply(events: [DiaryGameEvent], save: Bool) {
-        state = engine.state
+        let previousDayKey = state.dayKey
+        let previousWish = state.home.wish
+        let nextState = engine.state
+        let dayRolled = nextState.dayKey != previousDayKey
+            || events.contains(where: { if case .dayStarted = $0 { return true } else { return false } })
+        if dayRolled,
+           let previousWish,
+           !previousWish.completed,
+           nextState.home.wish?.goal != previousWish.goal {
+            switch previousWish.goal {
+            case .play, .feed:
+                expiredWishGuardGoal = previousWish.goal
+            case .pet:
+                expiredWishGuardGoal = nil
+            }
+        }
+        state = nextState
         for event in events {
             switch event {
             case .photoTaken(_, let photoID):
@@ -596,21 +625,19 @@ final class DiaryAppStore {
                 break
             }
         }
-        if save { scheduleSave() }
+        if save || dayRolled { scheduleSave() }
     }
 
-    private func handleMidnightWishRollover(beforeConsuming goal: WishGoal) -> Bool {
-        let previousWish = state.home.wish
-        guard refreshDayIfNeeded() else { return false }
-        guard let previousWish, !previousWish.completed, previousWish.goal == goal else {
+    private func shouldAbortItemUseAfterMidnightWishChange(for goal: WishGoal) -> Bool {
+        _ = refreshDayIfNeeded()
+        guard let guardedGoal = expiredWishGuardGoal else { return false }
+        expiredWishGuardGoal = nil
+        guard guardedGoal == goal, state.home.wish?.goal != goal else {
             return false
         }
-        if state.home.wish?.goal != goal {
-            notices.show(GameStrings.text("wish.refreshedAtMidnight"))
-            audio.play(.tap, userInitiated: true)
-            return true
-        }
-        return false
+        notices.show(GameStrings.text("wish.refreshedAtMidnight"))
+        audio.play(.tap, userInitiated: true)
+        return true
     }
 
     private func scheduleSave(force: Bool = false, resetBackoff: Bool = false) {
@@ -636,10 +663,46 @@ final class DiaryAppStore {
             guard let self else { return }
             while self.saveNeedsWrite {
                 self.saveNeedsWrite = false
-                let snapshot = self.state
                 let now = self.clock()
+                let saveNowMs = DayClock.epochMs(now)
                 do {
-                    try await self.repository.save(snapshot, now: now)
+                    if let orderID = self.pendingOrderDeliveryID {
+                        let baseState = self.state
+                        let candidateEngine = self.engine.cloned()
+                        let out = candidateEngine.deliverOrder(orderID: orderID, now: saveNowMs)
+                        if case .delivered(_, let wage, let gift, _) = out.value.result {
+                            let eligibleBonus: WageOffer? = if let bonus = out.value.bonusOffer,
+                                self.adService.isReady(slot: .wage),
+                                candidateEngine.offerStillAllowed(.wage(bonus), now: saveNowMs),
+                                self.activeAdOffer == nil {
+                                bonus
+                            } else {
+                                nil
+                            }
+                            var commitEvents = out.events
+                            if let eligibleBonus {
+                                let shownOut = candidateEngine.offerShown(.wage(eligibleBonus), now: saveNowMs)
+                                commitEvents.append(contentsOf: shownOut.events)
+                            }
+                            try await self.repository.save(candidateEngine.state, now: now)
+                            self.pendingOrderDeliveryID = nil
+                            self.commitSavedOrderDelivery(
+                                orderID: orderID,
+                                baseState: baseState,
+                                candidateEngine: candidateEngine,
+                                commitEvents: commitEvents,
+                                wage: wage,
+                                gift: gift,
+                                bonus: eligibleBonus
+                            )
+                        } else {
+                            self.pendingOrderDeliveryID = nil
+                            try await self.repository.save(self.state, now: now)
+                        }
+                    } else {
+                        let snapshot = self.state
+                        try await self.repository.save(snapshot, now: now)
+                    }
                     self.saveRetry.succeeded()
                     self.saveError = nil
                 } catch {
@@ -655,6 +718,55 @@ final class DiaryAppStore {
             }
             self.saveTask = nil
             self.isSaving = false
+        }
+    }
+
+    private func commitSavedOrderDelivery(
+        orderID: String,
+        baseState: DiaryGameState,
+        candidateEngine: DiaryGameEngine,
+        commitEvents: [DiaryGameEvent],
+        wage: Int,
+        gift: FurnitureID?,
+        bonus: WageOffer?
+    ) {
+        var finalWage = wage
+        var finalGift = gift
+        var finalBonus = bonus
+
+        if self.state == baseState {
+            self.engine = candidateEngine
+            self.syncStateAndApply(events: commitEvents, save: false)
+        } else {
+            let liveOut = self.engine.deliverOrder(orderID: orderID, now: self.nowMs)
+            guard case .delivered(_, let liveWage, let liveGift, _) = liveOut.value.result else { return }
+            finalWage = liveWage
+            finalGift = liveGift
+            var liveEvents = liveOut.events
+            if let candidateBonus = liveOut.value.bonusOffer,
+               self.adService.isReady(slot: .wage),
+               self.engine.offerStillAllowed(.wage(candidateBonus), now: self.nowMs),
+               self.activeAdOffer == nil {
+                let shownOut = self.engine.offerShown(.wage(candidateBonus), now: self.nowMs)
+                liveEvents.append(contentsOf: shownOut.events)
+                finalBonus = candidateBonus
+            } else {
+                finalBonus = nil
+            }
+            self.syncStateAndApply(events: liveEvents, save: false)
+            self.saveNeedsWrite = true
+        }
+
+        if case .orderDetail(let sheetOrder) = self.activeSheet, sheetOrder.id == orderID {
+            self.activeSheet = nil
+        }
+        self.audio.play(.coins, userInitiated: true)
+        self.notices.show(GameStrings.format("order.deliveredCoins", finalWage))
+        if let finalGift {
+            self.notices.show(GameStrings.format("order.customerGift", GameStrings.furnitureName(finalGift)))
+        }
+        if let finalBonus, self.activeAdOffer == nil {
+            self.activeAdOffer = .wage(finalBonus)
         }
     }
 

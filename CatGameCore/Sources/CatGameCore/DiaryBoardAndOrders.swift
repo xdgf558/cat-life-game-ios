@@ -15,12 +15,15 @@ public enum DiaryEnergy {
             state.energy.updatedAt = now
             return state.energy.current
         }
-        let ticks = Int((now - state.energy.updatedAt) / interval)
-        if ticks > 0 {
-            state.energy.current = min(maxEnergy, state.energy.current + ticks)
+        let elapsed = DayClock.elapsedMs(from: state.energy.updatedAt, to: now)
+        let rawTicks = elapsed / interval
+        if rawTicks > 0 {
+            let needed = max(0, maxEnergy - state.energy.current)
+            let appliedTicks = Int(min(Int64(needed), rawTicks))
+            state.energy.current = min(maxEnergy, state.energy.current + appliedTicks)
             state.energy.updatedAt = state.energy.current >= maxEnergy
                 ? now
-                : state.energy.updatedAt + Int64(ticks) * interval
+                : state.energy.updatedAt + Int64(appliedTicks) * interval
         }
         return state.energy.current
     }
@@ -28,7 +31,8 @@ public enum DiaryEnergy {
     public static func msToNext(_ state: inout DiaryGameState, now: Int64, balance: DiaryBalance = .default) -> Int64 {
         settle(&state, now: now, balance: balance)
         guard state.energy.current < balance.energy.max else { return 0 }
-        return max(0, balance.energy.regenIntervalMs - (now - state.energy.updatedAt))
+        let elapsed = DayClock.elapsedMs(from: state.energy.updatedAt, to: now)
+        return max(0, balance.energy.regenIntervalMs - min(balance.energy.regenIntervalMs, elapsed))
     }
 
     public static func view(_ state: DiaryGameState, now: Int64, balance: DiaryBalance = .default) -> (current: Int, msToNext: Int64) {

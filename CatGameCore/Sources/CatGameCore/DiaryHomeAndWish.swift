@@ -168,7 +168,7 @@ public struct NewFurnitureReaction: Equatable, Sendable {
 
 public enum DiaryHome {
     public static func settleCat(_ cat: inout DiaryCatState, now: Int64, balance: DiaryBalance = .default) {
-        let dt = Double(max(0, now - cat.updatedAt))
+        let dt = Double(DayClock.elapsedMs(from: cat.updatedAt, to: now))
         let cfg = balance.cat
         cat.satiety = max(0, cat.satiety - dt * cfg.satietyDecayPerMs)
         let drift = dt * cfg.moodDriftPerMs
@@ -195,7 +195,8 @@ public enum DiaryHome {
 
     public static func petCooldownLeft(_ cat: DiaryCatState, now: Int64, balance: DiaryBalance = .default) -> Int64 {
         guard let last = cat.lastPetAt, now >= last else { return 0 }
-        return max(0, balance.cat.petCooldownMs - (now - last))
+        let elapsed = DayClock.elapsedMs(from: last, to: now)
+        return max(0, balance.cat.petCooldownMs - min(balance.cat.petCooldownMs, elapsed))
     }
 
     public static func isRainyDay(dayKey: Int, balance: DiaryBalance = .default) -> Bool {
@@ -438,7 +439,7 @@ public enum DiaryHome {
         calendar: Calendar = .current
     ) -> HomeVisitResult {
         let last = state.home.lastVisitAt
-        let noteID: String? = if let last, now - last >= balance.home.offlineNoteAfterMs {
+        let noteID: String? = if let last, DayClock.elapsedMs(from: last, to: now) >= balance.home.offlineNoteAfterMs {
             pickOfflineNoteID(state, now: now, rng: &rng, balance: balance, calendar: calendar)
         } else {
             nil

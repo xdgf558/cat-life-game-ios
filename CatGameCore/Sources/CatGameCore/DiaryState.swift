@@ -275,15 +275,54 @@ public struct DiaryGameState: Codable, Equatable, Sendable {
 
     public var isValid: Bool {
         guard schemaVersion == Self.currentSchemaVersion else { return false }
-        guard coins >= 0, dayKey >= 19700101 else { return false }
+        guard coins >= 0, DayClock.isValidDayKey(dayKey) else { return false }
+        guard DayClock.isValidTimestamp(createdAt),
+              DayClock.isValidTimestamp(updatedAt),
+              DayClock.isValidTimestamp(energy.updatedAt) else {
+            return false
+        }
+        if let lastVisitAt = home.lastVisitAt, !DayClock.isValidTimestamp(lastVisitAt) {
+            return false
+        }
+        if let wish = home.wish, !DayClock.isValidDayKey(wish.dayKey) {
+            return false
+        }
+        if let lastOfferAt = ads.lastOfferAt, !DayClock.isValidTimestamp(lastOfferAt) {
+            return false
+        }
+        for claim in ads.ledger {
+            guard DayClock.isValidTimestamp(claim.createdAt),
+                  DayClock.isValidDayKey(claim.dayKey) else {
+                return false
+            }
+        }
+        for capturedAt in diary.photoDates.values where !DayClock.isValidTimestamp(capturedAt) {
+            return false
+        }
+        guard nextTargetID >= 1,
+              orders.nextID >= 1,
+              orders.rerollsUsedToday >= 0,
+              orders.completedTotal >= 0,
+              ads.nextClaimSeq >= 1 else {
+            return false
+        }
+        let maxToyUses = DiaryBalance.default.cat.toyUses
+        for toy in home.toys {
+            guard toy.usesLeft >= 1, toy.usesLeft <= maxToyUses else { return false }
+        }
         guard board.cells.count == DiaryBalance.default.board.cellCount else { return false }
         guard energy.current >= 0, energy.current <= DiaryBalance.default.energy.max else { return false }
         guard cats[.xiaoju] != nil else { return false }
         let maxLevel = DiaryBalance.default.cat.maxLevel
         for cat in cats.values {
             guard cat.level >= 1, cat.level <= maxLevel, cat.xp >= 0,
+                  cat.playCount >= 0, cat.feedCount >= 0, cat.petCount >= 0,
+                  DayClock.isValidTimestamp(cat.updatedAt),
                   cat.satiety.isFinite, (0.0...100.0).contains(cat.satiety),
                   cat.mood.isFinite, (0.0...100.0).contains(cat.mood) else {
+                return false
+            }
+            if let lastPetAt = cat.lastPetAt, !DayClock.isValidTimestamp(lastPetAt) {
                 return false
             }
         }

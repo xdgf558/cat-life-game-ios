@@ -130,4 +130,58 @@ final class DiarySaveRepositoryTests: XCTestCase {
         XCTAssertEqual(disposition, .recoveredBackup)
         XCTAssertEqual(recovered.coins, 123)
     }
+
+    func testCorruptTimestampsTriggerBackupRecoveryAndAvoidOverflow() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let repo = DiarySaveRepository(directory: dir)
+        let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+        var state = try await repo.loadOrCreate(now: t0)
+        state.coins = 310
+        try await repo.save(state, now: t0.addingTimeInterval(600))
+        state.coins = 500
+        try await repo.save(state, now: t0.addingTimeInterval(1200))
+
+        var catMinUpdated = state
+        catMinUpdated.primaryCat.updatedAt = .min
+        XCTAssertFalse(catMinUpdated.isValid)
+
+        var catMinPet = state
+        catMinPet.primaryCat.lastPetAt = .min
+        XCTAssertFalse(catMinPet.isValid)
+
+        var energyMinUpdated = state
+        energyMinUpdated.energy.updatedAt = .min
+        XCTAssertFalse(energyMinUpdated.isValid)
+
+        var visitMin = state
+        visitMin.home.lastVisitAt = .min
+        XCTAssertFalse(visitMin.isValid)
+
+        var offerMax = state
+        offerMax.ads.lastOfferAt = .max
+        XCTAssertFalse(offerMax.isValid)
+
+        var negativeCreated = state
+        negativeCreated.createdAt = -1
+        XCTAssertFalse(negativeCreated.isValid)
+
+        // Write corrupt primary save with cat.updatedAt == Int64.min -> must recover backup cleanly.
+        try JSONEncoder().encode(catMinUpdated).write(to: repo.saveURL)
+        let launchDate = t0.addingTimeInterval(1500)
+        let recovered = try await repo.loadOrCreate(now: launchDate)
+        let disposition = await repo.lastLoadDisposition
+        XCTAssertEqual(disposition, .recoveredBackup)
+        XCTAssertEqual(recovered.coins, 310)
+
+        // Defense-in-depth: settlement helpers must not trap even if fed extreme timestamps in memory.
+        let nowMs = DayClock.epochMs(launchDate)
+        XCTAssertEqual(DayClock.elapsedMs(from: .min, to: nowMs), .max)
+        DiaryHome.settleCats(&catMinUpdated, now: nowMs)
+        XCTAssertEqual(catMinUpdated.primaryCat.satiety, 0, accuracy: 0.01)
+        energyMinUpdated.energy.current = 0
+        XCTAssertEqual(DiaryEnergy.settle(&energyMinUpdated, now: nowMs), DiaryBalance.default.energy.max)
+    }
 }

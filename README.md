@@ -1,6 +1,6 @@
 # 打工养猫日记 · 原生 iOS
 
-本仓库独立维护「打工养猫日记」的原生 iOS App，采用 SwiftUI、SpriteKit 和本地 Foundation 核心包，最低 iOS 17；支持简体中文、繁体中文和 English。游戏进度保存在设备本地，提供原生备份导入与导出。
+本仓库独立维护「打工养猫日记」的原生 iOS App，采用 SwiftUI、SpriteKit 和本地 Foundation 核心包，最低 iOS 17；支持简体中文、繁体中文和 English。游戏进度保存在设备本地，支持自动备份恢复。
 
 ## 当前状态
 

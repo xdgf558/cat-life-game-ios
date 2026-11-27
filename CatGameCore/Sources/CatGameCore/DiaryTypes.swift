@@ -199,6 +199,25 @@ public enum DayClock {
     public static let minuteMs: Int64 = 60_000
     public static let hourMs: Int64 = 60 * minuteMs
     public static let dayMs: Int64 = 24 * hourMs
+    public static let minValidDayKey: Int = 19_700_101
+    public static let maxValidDayKey: Int = 99_991_231
+    public static let minValidEpochMs: Int64 = 0 // 1970-01-01T00:00:00Z
+    public static let maxValidEpochMs: Int64 = 253_402_300_799_999 // 9999-12-31T23:59:59.999Z
+
+    public static func isValidTimestamp(_ ms: Int64) -> Bool {
+        (minValidEpochMs...maxValidEpochMs).contains(ms)
+    }
+
+    public static func isValidDayKey(_ key: Int) -> Bool {
+        (minValidDayKey...maxValidDayKey).contains(key)
+    }
+
+    /// Overflow-safe non-negative elapsed milliseconds from `start` to `end`.
+    public static func elapsedMs(from start: Int64, to end: Int64) -> Int64 {
+        guard end > start else { return 0 }
+        let (diff, overflow) = end.subtractingReportingOverflow(start)
+        return overflow ? Int64.max : max(0, diff)
+    }
 
     public static func epochMs(_ date: Date) -> Int64 {
         Int64((date.timeIntervalSince1970 * 1000.0).rounded())

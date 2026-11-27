@@ -187,6 +187,127 @@ final class DiaryAppStoreTests: XCTestCase {
         XCTAssertEqual(store.state.home.toys.first?.usesLeft, 2)
     }
 
+    func testMidnightPetOnCooldownSyncsDayAndGuardsYesterdayWishToy() async throws {
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+
+        var comps = DateComponents()
+        comps.calendar = utcCal
+        comps.timeZone = utcCal.timeZone
+        comps.year = 2026
+        comps.month = 11
+        comps.day = 26
+        comps.hour = 23
+        comps.minute = 59
+        comps.second = 10
+        let beforeMidnight = try XCTUnwrap(comps.date)
+        let afterMidnight = beforeMidnight.addingTimeInterval(60) // 2026-11-27 00:00:10 UTC (within 5m pet cooldown)
+
+        let clock = MutableTestClock(beforeMidnight)
+        let ball = MergeItem(chain: .cloth, level: 3)
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(beforeMidnight), calendar: utcCal)
+        initial.tutorialActive = false
+        initial.primaryCat.satiety = 80
+        initial.home.toys = [OwnedToy(item: ball, usesLeft: 3)]
+        initial.home.wish = DailyWish(dayKey: 20261126, goal: .play(ball), completed: false)
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { clock.now },
+            calendar: utcCal
+        )
+        await store.bootstrap()
+
+        // 23:59:10 -> pet cat (starts 5-minute cooldown)
+        store.petCat()
+        XCTAssertNotNil(store.state.primaryCat.lastPetAt)
+
+        // 00:00:10 -> pet cat again while still on cooldown: day rollover MUST sync to Home immediately!
+        clock.now = afterMidnight
+        store.petCat()
+        XCTAssertEqual(store.state.dayKey, 20261127)
+        XCTAssertEqual(store.state.home.wish?.dayKey, 20261127)
+        XCTAssertNotEqual(store.state.home.wish?.goal, .play(ball))
+
+        // Tapping yesterday's wish toy right after must still protect durability instead of wasting a charge.
+        store.playWithToy(at: 0)
+        XCTAssertEqual(store.state.home.toys.first?.usesLeft, 3)
+        XCTAssertEqual(store.notices.toast, GameStrings.text("wish.refreshedAtMidnight"))
+
+        // Second tap plays normally.
+        store.playWithToy(at: 0)
+        XCTAssertEqual(store.state.home.toys.first?.usesLeft, 2)
+        try await waitUntil { !store.isSaving }
+    }
+
+    func testOrderDeliveryWaitsForSuccessfulSaveBeforeCreditingCoinsOrShowingBonus() async throws {
+        let now = Date(timeIntervalSince1970: 1_760_000_000)
+        let wand = MergeItem(chain: .cloth, level: 4)
+        let order = CustomerOrder(id: "o1", customer: .ajian, items: [wand], wage: 20)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(now))
+        initial.tutorialActive = false
+        initial.coins = 110 // 10 short of window_cushion (120)
+        initial.orders.completedTotal = 2 // eligible for wage ad bonus
+        initial.orders.active = [order]
+        initial.orders.nextID = 2
+        initial.board.cells[0] = wand
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { now },
+            saveRetryDelays: [.milliseconds(250), .milliseconds(300), .milliseconds(400)]
+        )
+        await store.bootstrap()
+        try await waitUntil { !store.isSaving }
+        store.notices.dismiss()
+
+        // Force disk save failures when delivering order "o1".
+        await repo.setFailuresRemaining(10)
+        store.deliverOrder("o1")
+        try await waitUntil { store.saveError != nil && !store.isSaving }
+
+        // While write has failed: coins, toast, and double-wage ad MUST NOT be credited/shown,
+        // and the player must NOT be able to spend the unpersisted 20 coins in the shop!
+        XCTAssertEqual(store.state.coins, 110)
+        XCTAssertNil(store.notices.toast)
+        XCTAssertNil(store.activeAdOffer)
+        XCTAssertEqual(store.state.orders.active.first?.id, "o1")
+        XCTAssertEqual(store.state.board.cells[0], wand)
+
+        store.buyFurniture(.windowCushion)
+        XCTAssertFalse(store.state.home.furnitureOwned.contains(.windowCushion))
+        XCTAssertEqual(store.state.coins, 110)
+        store.notices.dismiss()
+
+        // Once disk recovers and retry runs, order commits, coins credit, toast & double-wage ad appear!
+        await repo.setFailuresRemaining(0)
+        store.retrySaveNow()
+        try await waitUntil { store.saveError == nil && !store.isSaving && store.state.coins == 130 }
+
+        XCTAssertEqual(store.state.coins, 130)
+        XCTAssertEqual(store.notices.toast, GameStrings.format("order.deliveredCoins", 20))
+        if case .wage(let bonus) = store.activeAdOffer {
+            XCTAssertEqual(bonus.amount, 20)
+            XCTAssertEqual(bonus.orderID, "o1")
+        } else {
+            XCTFail("Expected double-wage ad offer after order delivery is persisted")
+        }
+        let persisted = await repo.lastSavedState
+        XCTAssertEqual(persisted?.coins, 130)
+        XCTAssertNil(persisted?.board.cells[0])
+
+        // Now the persisted coins can be spent cleanly.
+        store.buyFurniture(.windowCushion)
+        XCTAssertTrue(store.state.home.furnitureOwned.contains(.windowCushion))
+        XCTAssertEqual(store.state.coins, 10)
+        try await waitUntil { !store.isSaving }
+    }
+
     private func waitUntil(timeoutMs: Int = 1000, condition: () async -> Bool) async throws {
         let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
         while ContinuousClock.now < deadline {
