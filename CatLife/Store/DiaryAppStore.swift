@@ -129,6 +129,15 @@ final class DiaryAppStore {
 
     var currentPhotoModalID: String? { photoQueue.first }
     var currentLevelUpModal: LevelUpModalItem? { photoQueue.isEmpty ? levelUpQueue.first : nil }
+    // AdOfferOverlayView is hidden behind sheets, photo/level-up modals, or mock ad playback in DiaryRootView.
+    var canPresentAdOfferOverlay: Bool {
+        isLoaded
+            && isForeground
+            && activeSheet == nil
+            && currentPhotoModalID == nil
+            && currentLevelUpModal == nil
+            && playingMockAdSlot == nil
+    }
     var reservedBoardCells: Set<Int> { Set(pendingOrderDeliveries.flatMap(\.reservedCells)) }
 
     func isOrderDeliveryPending(_ orderID: String) -> Bool {
@@ -574,7 +583,7 @@ final class DiaryAppStore {
     // MARK: - Ads
 
     private func tryPresentMaterialAd(for chain: MergeChain) {
-        guard isForeground, activeAdOffer == nil, pendingAdCompletions.isEmpty else { return }
+        guard canPresentAdOfferOverlay, activeAdOffer == nil, pendingAdCompletions.isEmpty else { return }
         let pendingOrderIDs = Set(pendingOrderDeliveries.map(\.orderID))
         let out = engine.materialOfferFor(
             chain: chain,
@@ -952,7 +961,7 @@ final class DiaryAppStore {
         while attempts < 2 {
             attempts += 1
             guard self.stateGeneration == generation,
-                  self.isForeground,
+                  self.canPresentAdOfferOverlay,
                   self.mockAdsEnabled,
                   self.activeAdOffer == nil,
                   self.pendingAdCompletions.isEmpty,
@@ -982,10 +991,11 @@ final class DiaryAppStore {
                 break
             }
             guard self.stateGeneration == generation,
-                  self.isForeground,
+                  self.canPresentAdOfferOverlay,
                   self.mockAdsEnabled,
                   self.activeAdOffer == nil,
-                  self.pendingAdCompletions.isEmpty else {
+                  self.pendingAdCompletions.isEmpty,
+                  self.adService.isReady(slot: .wage) else {
                 break
             }
             let postSaveNowMs = max(offerNowMs, max(self.state.updatedAt, self.nowMs))
