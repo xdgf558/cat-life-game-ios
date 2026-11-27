@@ -199,6 +199,7 @@ extension GameStrings {
         "settings.resetDone": "已重置进度，回到与小橘初见的那一天",
         "save.loadFailed": "读取存档失败，请重试",
         "save.writeFailed": "存档写入失败，稍后将自动重试",
+        "save.writeFailedManual": "存档写入失败，请点击立即重试",
         "save.retry": "立即重试",
 
         "audio.nowPlaying": "正在播放",

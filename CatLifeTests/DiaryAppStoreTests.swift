@@ -625,19 +625,71 @@ final class DiaryAppStoreTests: XCTestCase {
         // While actively writing, status is `.saving`.
         XCTAssertEqual(store.orderCardStatus(for: order), .saving)
 
-        // Unpause and let all automatic retries exhaust -> status must switch to `.retrySave`!
+        // Unpause and let all automatic retries exhaust -> status must switch to `.retrySave`
+        // and banner copy must prompt manual retry instead of promising further automatic retries!
         await repo.setSavePaused(false)
         try await waitUntil(timeoutMs: 1200) {
             let attempts = await repo.failedAttemptsSinceReset
             return attempts >= SaveRetryState.maximumAutomaticAttempts + 1 && !store.isSaving
         }
         XCTAssertEqual(store.orderCardStatus(for: order), .retrySave)
+        XCTAssertEqual(store.saveError, GameStrings.text("save.writeFailedManual"))
 
         // Manual retry succeeds and completes delivery.
         await repo.setFailuresRemaining(0)
         store.retrySaveNow()
         try await waitUntil { store.saveError == nil && !store.isSaving && store.pendingOrderDeliveries.isEmpty }
         XCTAssertEqual(store.state.coins, 10)
+    }
+
+    func testConcurrentActionDuringOrderDeliveryDoesNotRollBackSettlementTimestamps() async throws {
+        let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+        let t1 = t0.addingTimeInterval(60) // +60s when player taps generator mid-save
+        let t2 = t0.addingTimeInterval(90) // +90s when order save finishes
+        let clock = MutableTestClock(t0)
+
+        let wand = MergeItem(chain: .cloth, level: 4)
+        let order = CustomerOrder(id: "o1", customer: .ajian, items: [wand], wage: 20)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(t0))
+        initial.tutorialActive = false
+        initial.orders.completedTotal = 2
+        initial.orders.active = [order]
+        initial.orders.nextID = 2
+        initial.board.cells[0] = wand
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { clock.now }
+        )
+        await store.bootstrap()
+        try await waitUntil { !store.isSaving }
+
+        // Start delivering o1 at t0 (`saveNowMs == t0`).
+        await repo.setSavePaused(true)
+        store.deliverOrder("o1")
+        try await waitUntil { await repo.inFlightSaves == 1 }
+
+        // At t1 (+60s), player taps generator while o1's save is still in flight:
+        // energy spends 30 -> 29 and `energy.updatedAt` advances to `t1`.
+        clock.now = t1
+        store.tapGenerator(.cloth)
+        XCTAssertEqual(store.state.energy.current, 29)
+        XCTAssertEqual(store.state.energy.updatedAt, DayClock.epochMs(t1))
+
+        // At t2 (+90s), o1's save finishes and commits onto the live engine:
+        // settlement timestamps MUST NOT roll backward to `t0`!
+        clock.now = t2
+        await repo.setSavePaused(false)
+        try await waitUntil { !store.isSaving && store.pendingOrderDeliveries.isEmpty }
+
+        XCTAssertEqual(store.state.energy.current, 29)
+        XCTAssertEqual(store.state.energy.updatedAt, DayClock.epochMs(t1))
+        XCTAssertEqual(store.state.updatedAt, DayClock.epochMs(t2))
+        XCTAssertEqual(store.state.primaryCat.updatedAt, DayClock.epochMs(t2))
+        XCTAssertEqual(store.state.ads.lastOfferAt, DayClock.epochMs(t2))
     }
 
     private func waitUntil(timeoutMs: Int = 1000, condition: () async -> Bool) async throws {

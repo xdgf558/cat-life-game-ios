@@ -790,6 +790,7 @@ final class DiaryAppStore {
                                 completion: completion,
                                 baseState: baseState,
                                 candidateEngine: candidateEngine,
+                                saveNowMs: saveNowMs,
                                 commitEvents: finishOut.events
                             )
                         } else {
@@ -851,9 +852,11 @@ final class DiaryAppStore {
                     self.saveNeedsWrite = false
                     let hadAutomaticAttemptLeft = self.saveRetry.failures < SaveRetryState.maximumAutomaticAttempts
                     _ = self.saveRetry.failed(at: now)
-                    self.saveError = GameStrings.text("save.writeFailed")
                     if hadAutomaticAttemptLeft {
+                        self.saveError = GameStrings.text("save.writeFailed")
                         self.scheduleAutomaticSaveRetry()
+                    } else {
+                        self.saveError = GameStrings.text("save.writeFailedManual")
                     }
                     break
                 }
@@ -867,6 +870,7 @@ final class DiaryAppStore {
         completion: PendingAdCompletion,
         baseState: DiaryGameState,
         candidateEngine: DiaryGameEngine,
+        saveNowMs: Int64,
         commitEvents: [DiaryGameEvent]
     ) {
         var granted = true
@@ -876,10 +880,11 @@ final class DiaryAppStore {
             self.engine.adConfig = currentAdConfig
             self.syncStateAndApply(events: commitEvents, save: false)
         } else {
+            let commitNowMs = max(saveNowMs, max(self.state.updatedAt, self.nowMs))
             let liveOut = self.engine.finishAd(
                 claimID: completion.claimID,
                 result: completion.result,
-                now: self.nowMs
+                now: commitNowMs
             )
             granted = liveOut.value
             self.syncStateAndApply(events: liveOut.events, save: false)
@@ -918,11 +923,12 @@ final class DiaryAppStore {
             self.engine.adConfig = currentAdConfig
             self.syncStateAndApply(events: commitEvents, save: false)
         } else {
+            let commitNowMs = max(saveNowMs, max(self.state.updatedAt, self.nowMs))
             let liveOut = self.engine.deliverOrder(
                 orderID: delivery.orderID,
                 preferredCells: delivery.reservedCells,
                 fixedReplacement: replacement,
-                now: saveNowMs
+                now: commitNowMs
             )
             guard case .delivered(_, let liveWage, let liveGift, _) = liveOut.value.result else { return }
             finalWage = liveWage
@@ -931,10 +937,10 @@ final class DiaryAppStore {
             if self.mockAdsEnabled,
                let candidateBonus = liveOut.value.bonusOffer,
                self.adService.isReady(slot: .wage),
-               self.engine.offerStillAllowed(.wage(candidateBonus), now: saveNowMs),
+               self.engine.offerStillAllowed(.wage(candidateBonus), now: commitNowMs),
                self.activeAdOffer == nil,
                self.pendingAdCompletions.isEmpty {
-                let shownOut = self.engine.offerShown(.wage(candidateBonus), now: saveNowMs)
+                let shownOut = self.engine.offerShown(.wage(candidateBonus), now: commitNowMs)
                 liveEvents.append(contentsOf: shownOut.events)
                 finalBonus = candidateBonus
             } else {

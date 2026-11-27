@@ -186,6 +186,7 @@ extension GameStrings {
         "settings.resetDone": "Progress reset to Day 1",
         "save.loadFailed": "Could not load save file. Please retry.",
         "save.writeFailed": "Save failed—will retry automatically.",
+        "save.writeFailedManual": "Save failed—please tap Retry Now.",
         "save.retry": "Retry Now",
 
         "audio.nowPlaying": "Now Playing",
