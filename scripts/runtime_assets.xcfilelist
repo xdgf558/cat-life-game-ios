@@ -207,6 +207,12 @@ $(SRCROOT)/CatLife/Assets.xcassets/cat_xueqiu_walk_3.imageset/cat_xueqiu_walk_3.
 $(SRCROOT)/CatLife/Assets.xcassets/cat_xueqiu_walk_4.imageset
 $(SRCROOT)/CatLife/Assets.xcassets/cat_xueqiu_walk_4.imageset/Contents.json
 $(SRCROOT)/CatLife/Assets.xcassets/cat_xueqiu_walk_4.imageset/cat_xueqiu_walk_4.png
+$(SRCROOT)/CatLife/Assets.xcassets/cover_bg.imageset
+$(SRCROOT)/CatLife/Assets.xcassets/cover_bg.imageset/Contents.json
+$(SRCROOT)/CatLife/Assets.xcassets/cover_bg.imageset/cover_bg.jpg
+$(SRCROOT)/CatLife/Assets.xcassets/cover_title.imageset
+$(SRCROOT)/CatLife/Assets.xcassets/cover_title.imageset/Contents.json
+$(SRCROOT)/CatLife/Assets.xcassets/cover_title.imageset/cover_title.png
 $(SRCROOT)/CatLife/Assets.xcassets/furn_bookshelf.imageset
 $(SRCROOT)/CatLife/Assets.xcassets/furn_bookshelf.imageset/Contents.json
 $(SRCROOT)/CatLife/Assets.xcassets/furn_bookshelf.imageset/furn_bookshelf.png

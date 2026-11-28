@@ -243,4 +243,31 @@ final class DiarySaveRepositoryTests: XCTestCase {
         XCTAssertEqual(recovered.dayKey, 20_261_231)
         XCTAssertEqual(recovered.orders.rerollsUsedToday, 0)
     }
+
+    func testLastSavedAtPersistsActualWriteTimestampAcrossReload() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let actionTime = Date(timeIntervalSince1970: 1_760_000_000)
+        let retrySaveTime = actionTime.addingTimeInterval(2 * 3600 + 10 * 60) // +2h10m
+        let relaunchTime = retrySaveTime.addingTimeInterval(300)
+
+        let repo1 = DiarySaveRepository(directory: dir)
+        var state = try await repo1.loadOrCreate(now: actionTime)
+        state.coins = 77
+        state.updatedAt = DayClock.epochMs(actionTime)
+
+        // Persist later at retrySaveTime while state.updatedAt remains actionTime.
+        try await repo1.save(state, now: retrySaveTime)
+        let savedAfterWrite = await repo1.lastSavedAt
+        XCTAssertEqual(savedAfterWrite, retrySaveTime)
+
+        // Cold reload with a fresh repository must restore retrySaveTime rather than rolling back to actionTime.
+        let repo2 = DiarySaveRepository(directory: dir)
+        let reloaded = try await repo2.loadOrCreate(now: relaunchTime)
+        let savedAfterReload = await repo2.lastSavedAt
+        XCTAssertEqual(reloaded.coins, 77)
+        XCTAssertEqual(reloaded.updatedAt, DayClock.epochMs(actionTime))
+        XCTAssertEqual(savedAfterReload, retrySaveTime)
+    }
 }

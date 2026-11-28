@@ -21,6 +21,7 @@ public actor DiarySaveRepository {
     public nonisolated let saveURL: URL
     public nonisolated let backupURL: URL
     public private(set) var lastLoadDisposition: SaveLoadDisposition = .loaded
+    public private(set) var lastSavedAt: Date?
 
     private struct SchemaHeader: Decodable {
         let schemaVersion: Int
@@ -41,6 +42,7 @@ public actor DiarySaveRepository {
                 var state = try decode(primaryData)
                 DiaryLedger.recoverPendingOnStartup(&state)
                 lastLoadDisposition = .loaded
+                lastSavedAt = fileModificationDate(at: saveURL) ?? DayClock.date(fromEpochMs: state.updatedAt)
                 return state
             } catch SaveRepositoryError.unsupportedSchemaVersion(let version) {
                 throw SaveRepositoryError.unsupportedSchemaVersion(version)
@@ -67,25 +69,38 @@ public actor DiarySaveRepository {
         try ensureDirectory()
         if FileManager.default.fileExists(atPath: saveURL.path) {
             let previous = try Data(contentsOf: saveURL)
-            if previous == candidate { return }
+            if previous == candidate {
+                lastSavedAt = fileModificationDate(at: saveURL) ?? lastSavedAt ?? DayClock.date(fromEpochMs: state.updatedAt)
+                return
+            }
             if (try? decode(previous)) != nil, shouldRotateBackup(now: now) {
                 try previous.write(to: backupURL, options: .atomic)
                 try? FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: backupURL.path)
             }
         }
         try candidate.write(to: saveURL, options: .atomic)
+        try? FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: saveURL.path)
+        lastSavedAt = now
     }
 
     private func recoverBackup() throws -> DiaryGameState {
         guard FileManager.default.fileExists(atPath: backupURL.path) else {
             throw SaveRepositoryError.unreadableSave
         }
+        let backupSavedAt = fileModificationDate(at: backupURL)
         let data = try Data(contentsOf: backupURL)
         var state = try decode(data)
         DiaryLedger.recoverPendingOnStartup(&state)
+        let persistedAt = backupSavedAt ?? DayClock.date(fromEpochMs: state.updatedAt)
         try encode(state).write(to: saveURL, options: .atomic)
+        try? FileManager.default.setAttributes([.modificationDate: persistedAt], ofItemAtPath: saveURL.path)
         lastLoadDisposition = .recoveredBackup
+        lastSavedAt = persistedAt
         return state
+    }
+
+    private func fileModificationDate(at url: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
     }
 
     private func shouldRotateBackup(now: Date) -> Bool {

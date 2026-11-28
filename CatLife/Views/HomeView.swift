@@ -193,8 +193,8 @@ struct HomeView: View {
 
                     Spacer()
 
-                    if !isTutorial && store.unlockedRooms.count > 1 {
-                        roomSegmentedPill
+                    if !isTutorial && (store.unlockedRooms.count > 1 || (!store.isDecorating && !store.state.home.furnitureOwned.isEmpty)) {
+                        roomRow
                     }
 
                     if store.isDecorating {
@@ -595,14 +595,18 @@ struct HomeView: View {
                             AssetOrSymbol(asset: "ui_heart", symbol: "heart.fill", size: 22, tint: RoomTheme.coral)
                         }
 
-                        VStack(alignment: .leading, spacing: 3) {
+                        VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 5) {
                                 Text(GameStrings.catName(cat.id))
                                     .font(.system(size: 14.5, weight: .heavy, design: .rounded))
                                     .foregroundStyle(RoomTheme.ink)
+                                    .lineLimit(1)
+                                    .fixedSize()
                                 Text(GameStrings.format("common.lvFormat", cat.level))
                                     .font(.system(size: 10.5, weight: .black, design: .rounded))
                                     .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                    .fixedSize()
                                     .padding(.horizontal, 6.5)
                                     .padding(.vertical, 1.5)
                                     .background(store.effectiveSelectedCatID == .xueqiu ? RoomTheme.mint : RoomTheme.coral, in: Capsule())
@@ -613,7 +617,7 @@ struct HomeView: View {
                                 }
                             }
                             let xp = DiaryProgression.xpProgress(for: cat)
-                            HStack(spacing: 8) {
+                            HStack(spacing: 7) {
                                 GeometryReader { bar in
                                     ZStack(alignment: .leading) {
                                         Capsule().fill(RoomTheme.track)
@@ -622,18 +626,22 @@ struct HomeView: View {
                                             .frame(width: bar.size.width * min(1, CGFloat(xp.current) / CGFloat(max(1, xp.target))))
                                     }
                                 }
-                                .frame(width: 62, height: 6)
+                                .frame(width: 44, height: 6)
 
                                 compactGauge(symbol: "fork.knife", value: clampedGaugeValue(cat.satiety), tint: cat.satiety < 25 ? RoomTheme.coral : RoomTheme.mint)
                                 compactGauge(symbol: "sun.max.fill", value: clampedGaugeValue(cat.mood), tint: RoomTheme.gold)
                             }
                         }
+                        .fixedSize()
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
                     .background(WarmGlassBackground(cornerRadius: 22, tintOpacity: 0.84))
                 }
                 .buttonStyle(.plain)
+                .layoutPriority(1)
+                .accessibilityElement(children: .combine)
+                .accessibilityHint(store.hasXueqiu ? GameStrings.text("home.switchCatHint") : "")
 
                 Spacer(minLength: 2)
 
@@ -644,25 +652,12 @@ struct HomeView: View {
                         .font(.system(size: 13, weight: .heavy, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(RoomTheme.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
                 .padding(.horizontal, 9)
                 .frame(height: 40)
                 .background(WarmGlassBackground(cornerRadius: 20, tintOpacity: 0.84))
-
-                if !isTutorial && !store.state.home.furnitureOwned.isEmpty {
-                    Button {
-                        store.enterDecorateMode()
-                    } label: {
-                        Image(systemName: "paintbrush.pointed.fill")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(RoomTheme.coralDeep)
-                            .frame(width: 40, height: 40)
-                            .background(WarmGlassBackground(cornerRadius: 20, tintOpacity: 0.84))
-                    }
-                    .buttonStyle(CraftIconBadgeButtonStyle())
-                    .accessibilityLabel(GameStrings.text("home.decorate"))
-                    .accessibilityIdentifier("homeDecorateButton")
-                }
 
                 if !isTutorial {
                     Button {
@@ -952,6 +947,64 @@ struct HomeView: View {
         .padding(.top, 4)
     }
 
+    /// Room tabs plus the decorate entry: both act on the room you're looking at.
+    /// Falls back to an icon-only decorate button, then a scrolling tab strip on narrow / large-text layouts.
+    @ViewBuilder
+    private var roomRow: some View {
+        if store.isDecorating {
+            ViewThatFits(in: .horizontal) {
+                roomSegmentedPill
+                ScrollView(.horizontal, showsIndicators: false) { roomSegmentedPill }
+            }
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    if store.unlockedRooms.count > 1 { roomSegmentedPill }
+                    Spacer(minLength: 8)
+                    decorateButton(showLabel: true)
+                }
+                HStack(spacing: 8) {
+                    if store.unlockedRooms.count > 1 { roomSegmentedPill }
+                    Spacer(minLength: 6)
+                    decorateButton(showLabel: false)
+                }
+                HStack(spacing: 8) {
+                    if store.unlockedRooms.count > 1 {
+                        ScrollView(.horizontal, showsIndicators: false) { roomSegmentedPill }
+                    }
+                    decorateButton(showLabel: false)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func decorateButton(showLabel: Bool) -> some View {
+        if !store.isDecorating && !store.state.home.furnitureOwned.isEmpty {
+            Button {
+                store.enterDecorateMode()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "paintbrush.pointed.fill")
+                        .font(.system(size: 13, weight: .bold))
+                    if showLabel {
+                        Text(GameStrings.text("home.decorate"))
+                            .font(.system(size: 12.5, weight: .heavy, design: .rounded))
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                }
+                .foregroundStyle(RoomTheme.coralDeep)
+                .padding(.horizontal, showLabel ? 12 : 0)
+                .frame(minWidth: 38, minHeight: 38)
+                .background(WarmGlassBackground(cornerRadius: 19, tintOpacity: 0.86))
+            }
+            .buttonStyle(CraftIconBadgeButtonStyle())
+            .accessibilityLabel(GameStrings.text("home.decorate"))
+            .accessibilityIdentifier("homeDecorateButton")
+        }
+    }
+
     private var roomSegmentedPill: some View {
         HStack(spacing: 4) {
             ForEach(store.unlockedRooms, id: \.self) { room in
@@ -965,6 +1018,8 @@ struct HomeView: View {
                     HStack(spacing: 4) {
                         Text(GameStrings.roomName(room))
                             .font(.system(size: 12.5, weight: .heavy, design: .rounded))
+                            .lineLimit(1)
+                            .fixedSize()
                         if hasStrayDot {
                             Circle()
                                 .fill(selected ? Color.white : RoomTheme.coral)
@@ -1123,34 +1178,39 @@ struct HomeView: View {
 
     private func trayTile(item: MergeItem, durabilityDots: Int?, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 2) {
+            VStack(spacing: 3) {
                 Image(item.assetName)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 38, height: 38)
+                    .frame(width: 36, height: 36)
                     .shadow(color: RoomTheme.ink.opacity(0.14), radius: 2, y: 1.5)
 
-                if let dots = durabilityDots {
-                    HStack(spacing: 3) {
-                        ForEach(0..<DiaryBalance.default.cat.toyUses, id: \.self) { i in
-                            Circle()
-                                .fill(i < dots ? RoomTheme.coral : RoomTheme.track)
-                                .frame(width: 5, height: 5)
-                        }
-                    }
-                } else {
-                    Text(GameStrings.itemName(item))
-                        .font(.system(size: 8.5, weight: .bold, design: .rounded))
-                        .foregroundStyle(RoomTheme.secondary)
-                        .lineLimit(1)
-                }
+                Text(GameStrings.itemName(item))
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .foregroundStyle(RoomTheme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
-            .frame(width: 54, height: 56)
+            .padding(.horizontal, 3)
+            .frame(width: 58, height: 58)
             .background(RoomTheme.paper, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(RoomTheme.wood.opacity(0.75), lineWidth: 1))
+            .overlay(alignment: .topTrailing) {
+                if let uses = durabilityDots {
+                    Text(GameStrings.format("home.toyUses", uses))
+                        .font(.system(size: 9, weight: .black, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4.5)
+                        .padding(.vertical, 1)
+                        .background(RoomTheme.coral, in: Capsule())
+                        .offset(x: 3, y: -4)
+                }
+            }
             .shadow(color: RoomTheme.ink.opacity(0.08), radius: 2, y: 1)
         }
         .buttonStyle(CraftIconBadgeButtonStyle())
+        .accessibilityLabel(durabilityDots.map { GameStrings.itemName(item) + " · " + GameStrings.format("home.toyUses", $0) } ?? GameStrings.itemName(item))
     }
 }
 

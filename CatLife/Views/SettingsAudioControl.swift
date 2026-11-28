@@ -64,7 +64,7 @@ struct SettingsAudioControl: View {
                     }
                 }
             }
-            .tint(RoomTheme.mint)
+            .tint(RoomTheme.coral)
             .frame(minHeight: 44)
             .contentShape(Rectangle())
             .accessibilityIdentifier(channel.toggleID)
@@ -80,7 +80,7 @@ struct SettingsAudioControl: View {
                         onChange()
                     }), in: 0...1, step: 0.05,
                        onEditingChanged: { editing in if !editing { onCommit() } })
-                    .tint(RoomTheme.mint)
+                    .tint(RoomTheme.coral)
                     .disabled(!settings[keyPath: channel.enabledKeyPath])
                     .accessibilityLabel(GameStrings.text(channel.volumeTitleKey))
                     .accessibilityValue(volumePercent)
@@ -94,9 +94,9 @@ struct SettingsAudioControl: View {
                             .font(.system(size: 11, weight: .heavy))
                             .padding(.horizontal, 10).frame(minHeight: 44)
                             .background(RoomTheme.paper, in: Capsule())
-                            .overlay(Capsule().stroke(RoomTheme.mint.opacity(0.25), lineWidth: 2))
+                            .overlay(Capsule().stroke(RoomTheme.coral.opacity(0.3), lineWidth: 2))
                     }
-                    .buttonStyle(.plain).foregroundStyle(RoomTheme.darkMint)
+                    .buttonStyle(.plain).foregroundStyle(RoomTheme.coralDeep)
                     .fixedSize(horizontal: true, vertical: false)
                     .disabled(previewDisabled || !settings[keyPath: channel.enabledKeyPath]
                               || settings[keyPath: channel.volumeKeyPath] == 0)

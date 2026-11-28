@@ -94,21 +94,23 @@ struct DiarySheetView: View {
         }
     }
 
+    /// One compact line (days together · progress) + thin bar + keepsake badges, so photos start in the first screen.
     private var scrapbookHeaderCard: some View {
         let progress = store.photoProgress
         let reached = store.reachedMilestones
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(GameStrings.format("diary.daysTogether", store.daysTogether))
-                        .font(.system(size: 18, weight: .heavy, design: .rounded))
-                        .foregroundStyle(RoomTheme.ink)
-                    Text(GameStrings.format("diary.progressFormat", progress.got, progress.total))
-                        .font(.system(size: 12.5, weight: .bold, design: .rounded))
-                        .foregroundStyle(RoomTheme.coralDeep)
-                }
-                Spacer()
-                AssetOrSymbol(asset: "ui_camera", symbol: "camera.fill", size: 32, tint: RoomTheme.coral)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(GameStrings.format("diary.daysTogether", store.daysTogether))
+                    .font(.system(size: 15.5, weight: .heavy, design: .rounded))
+                    .foregroundStyle(RoomTheme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                Text(GameStrings.format("diary.progressFormat", progress.got, progress.total))
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(RoomTheme.coralDeep)
+                    .lineLimit(1)
             }
 
             GeometryReader { bar in
@@ -119,59 +121,52 @@ struct DiarySheetView: View {
                         .frame(width: bar.size.width * min(1, CGFloat(progress.got) / CGFloat(max(1, progress.total))))
                 }
             }
-            .frame(height: 8)
+            .frame(height: 6)
 
             if !reached.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(GameStrings.text("milestone.sectionTitle"))
-                        .font(.system(size: 11, weight: .heavy, design: .rounded))
-                        .foregroundStyle(RoomTheme.secondary)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(reached) { m in
-                                Button {
-                                    dismiss()
-                                    store.showMilestone(m)
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "rosette")
-                                            .font(.system(size: 10.5, weight: .bold))
-                                            .foregroundStyle(RoomTheme.gold)
-                                        Text(GameStrings.milestoneTitle(m))
-                                            .font(.system(size: 11, weight: .heavy, design: .rounded))
-                                            .foregroundStyle(RoomTheme.ink)
-                                    }
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 5)
-                                    .background(RoomTheme.rewardPaper, in: Capsule())
-                                    .overlay(Capsule().stroke(RoomTheme.gold.opacity(0.65), lineWidth: 1))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(reached) { m in
+                            Button {
+                                dismiss()
+                                store.showMilestone(m)
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "rosette")
+                                        .font(.system(size: 10.5, weight: .bold))
+                                        .foregroundStyle(RoomTheme.gold)
+                                    Text(GameStrings.milestoneTitle(m))
+                                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                                        .foregroundStyle(RoomTheme.ink)
                                 }
-                                .buttonStyle(.plain)
+                                .padding(.horizontal, 9)
+                                .frame(minHeight: 28)
+                                .background(RoomTheme.rewardPaper, in: Capsule())
+                                .overlay(Capsule().stroke(RoomTheme.gold.opacity(0.65), lineWidth: 1))
                             }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(GameStrings.text("milestone.sectionTitle") + " · " + GameStrings.milestoneTitle(m))
                         }
                     }
                 }
-                .padding(.top, 2)
             }
         }
-        .padding(16)
-        .background(RoomTheme.paper, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(RoomTheme.wood, style: StrokeStyle(lineWidth: 1.4, dash: [6, 4]))
-        )
-        .shadow(color: RoomTheme.ink.opacity(0.08), radius: 6, y: 3)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(RoomTheme.paper, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(RoomTheme.wood.opacity(0.6), lineWidth: 1))
     }
 
+    /// Four equal-width tabs (title + count) so none is clipped, in any language.
     private var sectionTabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                tabPill(.core, title: GameStrings.text("diary.tab.core"), badge: "\(store.photoProgress.got)/\(store.photoProgress.total)")
-                tabPill(.xueqiu, title: GameStrings.text("diary.tab.xueqiu"), badge: "\(store.extraPhotoProgress.got)/\(store.extraPhotoProgress.total)")
-                tabPill(.album, title: GameStrings.text("diary.tab.album"), badge: store.isAlbumOpen ? "\(store.albumProgress.got)/\(store.albumProgress.total)" : "🔒")
-                tabPill(.treasures, title: GameStrings.text("diary.tab.treasures"), badge: "\(store.treasureCount)/\(DiaryCatalog.treasures.count)")
-            }
+        HStack(spacing: 4) {
+            tabPill(.core, title: GameStrings.text("diary.tab.core"), badge: "\(store.photoProgress.got)/\(store.photoProgress.total)")
+            tabPill(.xueqiu, title: GameStrings.text("diary.tab.xueqiu"), badge: "\(store.extraPhotoProgress.got)/\(store.extraPhotoProgress.total)")
+            tabPill(.album, title: GameStrings.text("diary.tab.album"), badge: store.isAlbumOpen ? "\(store.albumProgress.got)/\(store.albumProgress.total)" : "🔒")
+            tabPill(.treasures, title: GameStrings.text("diary.tab.treasures"), badge: "\(store.treasureCount)/\(DiaryCatalog.treasures.count)")
         }
+        .padding(4)
+        .background(RoomTheme.chipBg, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func tabPill(_ tab: DiaryTab, title: String, badge: String) -> some View {
@@ -179,21 +174,30 @@ struct DiarySheetView: View {
         return Button {
             selectedTab = tab
         } label: {
-            HStack(spacing: 5) {
+            VStack(spacing: 1) {
                 Text(title)
-                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .font(.system(size: 12.5, weight: .heavy, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
                 Text(badge)
-                    .font(.system(size: 10.5, weight: .black, design: .rounded))
+                    .font(.system(size: 10, weight: .black, design: .rounded))
                     .monospacedDigit()
                     .opacity(0.85)
             }
             .foregroundStyle(active ? .white : RoomTheme.ink)
-            .padding(.horizontal, 13)
-            .padding(.vertical, 8)
-            .background(active ? RoomTheme.coral : RoomTheme.paper, in: Capsule())
-            .overlay(Capsule().stroke(active ? .clear : RoomTheme.wood.opacity(0.8), lineWidth: 1.1))
+            .padding(.horizontal, 4)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background {
+                if active {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(RoomTheme.coral)
+                        .shadow(color: RoomTheme.coralDeep.opacity(0.45), radius: 0, y: 2)
+                }
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     private var coreCategoryFilterBar: some View {

@@ -245,7 +245,7 @@ struct AdOfferOverlayView: View {
                 .buttonStyle(SoftPaperButtonStyle())
                 .frame(maxWidth: .infinity)
             Button(GameStrings.format("ad.materialWatch", offer.count, GameStrings.itemName(offer.item)), action: onWatch)
-                .buttonStyle(WarmButtonStyle(fill: RoomTheme.mint, shadowColor: RoomTheme.darkMint))
+                .buttonStyle(WarmButtonStyle())
                 .frame(maxWidth: .infinity)
         }
     }
@@ -337,7 +337,7 @@ struct MockAdPlaybackOverlayView: View {
                     Button(GameStrings.text("ad.mockFinish")) {
                         onFinish(.ended)
                     }
-                    .buttonStyle(WarmButtonStyle(fill: RoomTheme.mint, shadowColor: RoomTheme.darkMint))
+                    .buttonStyle(WarmButtonStyle())
                     .disabled(remaining > 0)
 
                     HStack(spacing: 10) {
@@ -453,7 +453,7 @@ struct LevelUpOverlayView: View {
                 }
 
                 Button(GameStrings.text("diary.levelUpGreat"), action: onDismiss)
-                    .buttonStyle(WarmButtonStyle(fill: RoomTheme.mint, shadowColor: RoomTheme.darkMint))
+                    .buttonStyle(WarmButtonStyle())
             }
             .padding(24)
             .background(WatercolorPanelBackground())

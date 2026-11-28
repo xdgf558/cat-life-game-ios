@@ -22,7 +22,7 @@ struct SettingsSoundPage: View {
             control(.effects, preview: onEffectsPreview)
             control(.cat, preview: onCatPreview)
             VStack(spacing: 0) {
-                option("audio.sceneMusic", symbol: "map.fill", tint: RoomTheme.mint,
+                option("audio.sceneMusic", symbol: "map.fill", tint: RoomTheme.darkMint,
                        keyPath: \.sceneMusic, id: "audioSceneMusicToggle")
                 Divider().overlay(RoomTheme.wood.opacity(0.2))
                 option("audio.nightQuiet", symbol: "moon.stars.fill", tint: RoomTheme.lilac,
@@ -39,7 +39,7 @@ struct SettingsSoundPage: View {
             }
             if saving {
                 ProgressView(GameStrings.text("common.saving"))
-                    .font(.footnote).tint(RoomTheme.darkMint)
+                    .font(.footnote).tint(RoomTheme.coralDeep)
                     .accessibilityIdentifier("audioSaveStatus")
             }
             Text(GameStrings.text("audio.systemHint"))
@@ -53,22 +53,19 @@ struct SettingsSoundPage: View {
         HStack(spacing: 12) {
             TimelineView(.animation(minimumInterval: 0.1, paused: !musicPlaying || reduceMotion)) { context in
                 ZStack {
-                    Circle().fill(RoomTheme.darkMint)
+                    Circle().fill(RoomTheme.coralDeep)
                     Circle().stroke(.white, lineWidth: 3)
                     Circle().fill(RoomTheme.paper).frame(width: 14, height: 14)
-                    Circle().fill(.white.opacity(0.35)).frame(width: 4, height: 4).offset(y: -17)
+                    Circle().fill(.white.opacity(0.35)).frame(width: 4, height: 4).offset(y: -12)
                 }
                 .rotationEffect(.degrees(musicPlaying && !reduceMotion ? context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 4) * 90 : 0))
             }
-            .frame(width: 50, height: 50).accessibilityHidden(true)
+            .frame(width: 38, height: 38).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(GameStrings.text(musicPlaying ? "audio.nowPlaying" : "audio.paused") + " · " + GameStrings.text(track.sceneKey))
                     .font(.system(size: 11, weight: .bold)).foregroundStyle(.white.opacity(0.85))
-                Text(track.title).font(.system(size: 16, weight: .heavy))
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(GameStrings.text("audio.sceneHint"))
-                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(track.title).font(.system(size: 15, weight: .heavy))
+                    .lineLimit(1).minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Button(action: onMusicPreview) {
@@ -77,16 +74,16 @@ struct SettingsSoundPage: View {
                     .frame(width: 44, height: 44)
                     .background(RoomTheme.paper, in: Circle())
             }
-            .buttonStyle(.plain).foregroundStyle(RoomTheme.darkMint)
+            .buttonStyle(.plain).foregroundStyle(RoomTheme.coralDeep)
             .disabled(previewDisabled || !settings.musicEnabled || settings.musicVolume == 0)
             .accessibilityLabel(GameStrings.text(musicPlaying ? "audio.pauseMusic" : "audio.resumeMusic"))
             .accessibilityIdentifier("audioNowPlayingButton")
         }
-        .padding(14).foregroundStyle(.white)
+        .padding(.horizontal, 14).padding(.vertical, 10).foregroundStyle(.white)
         .background {
-            RoundedRectangle(cornerRadius: 26).fill(RoomTheme.mint)
-                .overlay(RoundedRectangle(cornerRadius: 26).stroke(.white.opacity(0.5), lineWidth: 2))
-                .shadow(color: RoomTheme.darkMint, radius: 0, y: 4)
+            RoundedRectangle(cornerRadius: 20).fill(RoomTheme.coral)
+                .overlay(RoundedRectangle(cornerRadius: 20).stroke(.white.opacity(0.5), lineWidth: 1.5))
+                .shadow(color: RoomTheme.coralDeep, radius: 0, y: 3)
         }
         .accessibilityIdentifier("audioNowPlayingCard")
     }
@@ -114,7 +111,7 @@ struct SettingsSoundPage: View {
                 }
             }
         }
-        .tint(RoomTheme.mint).padding(.vertical, 12)
+        .tint(RoomTheme.coral).padding(.vertical, 12)
         .accessibilityIdentifier(id)
     }
 }

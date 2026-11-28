@@ -90,13 +90,13 @@ final class DiaryAppStoreTests: XCTestCase {
         }
     }
 
-    func testAppReleaseIncludesBuild71AndPreservesHistoricalBuilds() {
-        XCTAssertEqual(AppVersion.current.version, "2.1.0")
-        XCTAssertEqual(AppVersion.current.buildNumber, 71)
+    func testAppReleaseIncludesBuild72AndPreservesHistoricalBuilds() {
+        XCTAssertEqual(AppVersion.current.version, "2.2.0")
+        XCTAssertEqual(AppVersion.current.buildNumber, 72)
         let builds = AppRelease.recent.map(\.build)
+        XCTAssertTrue(builds.contains(72))
         XCTAssertTrue(builds.contains(71))
         XCTAssertTrue(builds.contains(70))
-        XCTAssertTrue(builds.contains(69))
     }
 
     func testRelaunchAtTutorialFinishRequeuesTutorialPhotoModal() async throws {
@@ -2177,6 +2177,442 @@ final class DiaryAppStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.home.activeSkin, .mint)
     }
 
+    func testCoverBootstrapDoesNotConsumeDayMilestoneOrBackpayUntilEnterAndOverlayReveal() async throws {
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+
+        let createdDate = Date(timeIntervalSince1970: 1_760_000_000)
+        let day8Date = createdDate.addingTimeInterval(7 * 24 * 3600)
+        let suiteName = "CatLifeTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(createdDate), calendar: utcCal)
+        initial.tutorialActive = false
+        initial.orders.storyBackpay = 150
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { day8Date },
+            calendar: utcCal,
+            userDefaults: defaults
+        )
+
+        // Launch on cover screen: must load state without consuming day milestone, backpay toast, or home visit.
+        await store.bootstrap(enterImmediately: false)
+        XCTAssertTrue(store.isLoaded)
+        XCTAssertFalse(store.hasEntered)
+        XCTAssertFalse(store.overlaysReady)
+        XCTAssertFalse(store.canPresentAdOfferOverlay)
+        XCTAssertNil(store.milestoneModal)
+        XCTAssertEqual(store.state.orders.storyBackpay, 150)
+        XCTAssertNil(store.notices.toast)
+        let seenKey = "CatLife.seenDayMilestones.\(initial.createdAt)"
+        XCTAssertNil(defaults.stringArray(forKey: seenKey))
+
+        // Backgrounding and returning on the cover screen must still not consume milestones.
+        store.setForeground(false)
+        store.setForeground(true)
+        XCTAssertNil(store.milestoneModal)
+        XCTAssertNil(defaults.stringArray(forKey: seenKey))
+
+        // Tap "Open the Diary": backpay toast appears now, while milestone still waits for overlay reveal.
+        store.enterDiary(revealOverlaysImmediately: false)
+        XCTAssertTrue(store.hasEntered)
+        XCTAssertFalse(store.overlaysReady)
+        XCTAssertFalse(store.canPresentAdOfferOverlay)
+        XCTAssertEqual(store.state.orders.storyBackpay, 0)
+        XCTAssertEqual(store.state.coins, 150)
+        XCTAssertEqual(store.notices.toast, GameStrings.format("story.backpayNotice", 150))
+        XCTAssertNil(store.milestoneModal)
+        XCTAssertNil(defaults.stringArray(forKey: seenKey))
+
+        // If the app backgrounds before the 800ms overlay reveal fires, milestone must not be marked seen offscreen.
+        store.setForeground(false)
+        store.completeOverlayReveal()
+        XCTAssertFalse(store.overlaysReady)
+        XCTAssertNil(store.milestoneModal)
+        XCTAssertNil(defaults.stringArray(forKey: seenKey))
+
+        // Returning to foreground reveals overlays and queues `.day7`; UserDefaults marks seen only once actually presented.
+        store.setForeground(true)
+        XCTAssertTrue(store.overlaysReady)
+        XCTAssertEqual(store.milestoneModal, .day7)
+        XCTAssertNil(defaults.stringArray(forKey: seenKey))
+
+        store.markMilestonePresented(.day7)
+        XCTAssertEqual(defaults.stringArray(forKey: seenKey), [MilestoneID.day7.rawValue])
+        try await waitUntil { !store.isSaving }
+    }
+
+    func testDay7MilestoneDeferredWhileSettingsSheetIsOpenAcrossBackgroundReturn() async throws {
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+
+        let day1Date = Date(timeIntervalSince1970: 1_760_000_000)
+        let day6Date = day1Date.addingTimeInterval(5 * 24 * 3600)
+        let day7Date = day1Date.addingTimeInterval(6 * 24 * 3600)
+        let clock = MutableTestClock(day6Date)
+
+        let suiteName = "CatLifeTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(day1Date), calendar: utcCal)
+        initial.tutorialActive = false
+        let seenKey = "CatLife.seenDayMilestones.\(initial.createdAt)"
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store1 = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { clock.now },
+            calendar: utcCal,
+            userDefaults: defaults
+        )
+        try await bootstrapReady(store1)
+        XCTAssertEqual(store1.daysTogether, 6)
+        XCTAssertNil(store1.milestoneModal)
+
+        // Day 6: open Settings sheet and background the app.
+        store1.activeSheet = .settings
+        store1.setForeground(false)
+
+        // Day 7: return to foreground while Settings is still covering the screen.
+        clock.now = day7Date
+        store1.setForeground(true)
+        XCTAssertEqual(store1.daysTogether, 7)
+        XCTAssertNil(store1.milestoneModal, "Milestone must not present behind Settings sheet")
+        XCTAssertNil(defaults.stringArray(forKey: seenKey), "Milestone must not be marked seen while hidden behind Settings")
+
+        // Force-quit & relaunch on Day 7: celebration must still appear automatically!
+        let store2 = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { clock.now },
+            calendar: utcCal,
+            userDefaults: defaults
+        )
+        await store2.bootstrap(enterImmediately: true)
+        XCTAssertEqual(store2.milestoneModal, .day7)
+        XCTAssertNil(defaults.stringArray(forKey: seenKey), "Not marked seen until view presentation confirms it")
+
+        // Closing Settings on store1 should also present Day 7 cleanly once unobstructed.
+        store1.activeSheet = nil
+        XCTAssertEqual(store1.milestoneModal, .day7)
+        store1.markMilestonePresented(.day7)
+        XCTAssertEqual(defaults.stringArray(forKey: seenKey), [MilestoneID.day7.rawValue])
+        try await waitUntil { !store1.isSaving && !store2.isSaving }
+    }
+
+    func testSaveHealthShowsSavingWhileDiskWriteInFlightAndFailedOnError() async throws {
+        let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(t0))
+        initial.tutorialActive = false
+        initial.board.cells[0] = MergeItem(chain: .cloth, level: 3)
+        initial.board.cells[1] = MergeItem(chain: .cloth, level: 3)
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { t0 },
+            saveRetryDelays: [.milliseconds(20), .milliseconds(30), .milliseconds(40)]
+        )
+        try await bootstrapReady(store)
+        XCTAssertEqual(store.saveHealth, .saved)
+
+        // Suspend disk write after selling an item -> UI removed item, disk not yet written -> saveHealth must be `.saving`!
+        await repo.setSavePaused(true)
+        store.sellItem(at: 0)
+        try await waitUntil { await repo.inFlightSaves == 1 }
+        XCTAssertNil(store.state.board.cells[0])
+        XCTAssertEqual(store.saveHealth, .saving)
+
+        // Release write -> returns to `.saved`.
+        await repo.setSavePaused(false)
+        try await waitUntil { !store.isSaving }
+        XCTAssertEqual(store.saveHealth, .saved)
+
+        // Fail disk writes -> transitions to `.failed`.
+        await repo.setFailuresRemaining(10)
+        store.sellItem(at: 1)
+        try await waitUntil(timeoutMs: 1200) { store.saveError == GameStrings.text("save.writeFailedManual") && !store.isSaving }
+        XCTAssertEqual(store.saveHealth, .failed(GameStrings.text("save.writeFailedManual")))
+    }
+
+    func testColdStartPreservesActualRetrySaveTimestampEvenWhenLaterWriteFails() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+        let actionTime = t0.addingTimeInterval(60)
+        let retryTime = actionTime.addingTimeInterval(2 * 3600 + 10 * 60) // +2h10m later
+        let relaunchTime = retryTime.addingTimeInterval(300)
+        let clock = MutableTestClock(t0)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(t0))
+        initial.tutorialActive = false
+        initial.board.cells[0] = MergeItem(chain: .cloth, level: 3)
+
+        let diskRepo = DiarySaveRepository(directory: dir)
+        try await diskRepo.save(initial, now: t0)
+        let gateRepo1 = GatedDiskSaveRepository(backing: diskRepo)
+
+        let store1 = DiaryAppStore(
+            repository: gateRepo1,
+            adService: MockRewardedAdService(),
+            clock: { clock.now },
+            saveRetryDelays: [.milliseconds(20), .milliseconds(30), .milliseconds(40)]
+        )
+        try await bootstrapReady(store1)
+
+        // Sell at actionTime and fail writes until automatic retries exhaust.
+        clock.now = actionTime
+        await gateRepo1.setFailuresRemaining(10)
+        store1.sellItem(at: 0)
+        try await waitUntil(timeoutMs: 1200) { store1.saveError == GameStrings.text("save.writeFailedManual") && !store1.isSaving }
+        XCTAssertEqual(store1.state.updatedAt, DayClock.epochMs(actionTime))
+        XCTAssertEqual(store1.lastPersistedAt, t0)
+
+        // Retry succeeds 2h10m later at retryTime.
+        clock.now = retryTime
+        await gateRepo1.setFailuresRemaining(0)
+        store1.retrySaveNow()
+        try await waitUntil { store1.saveError == nil && !store1.isSaving }
+        XCTAssertEqual(store1.lastPersistedAt, retryTime)
+
+        // Cold relaunch at relaunchTime where the post-enter visitHome write FAILS:
+        // lastPersistedAt must still display retryTime (NOT roll back 2h10m to actionTime!).
+        clock.now = relaunchTime
+        let freshDiskRepo = DiarySaveRepository(directory: dir)
+        let gateRepo2 = GatedDiskSaveRepository(backing: freshDiskRepo)
+        await gateRepo2.setFailuresRemaining(10)
+
+        let store2 = DiaryAppStore(
+            repository: gateRepo2,
+            adService: MockRewardedAdService(),
+            clock: { clock.now },
+            saveRetryDelays: [.milliseconds(20), .milliseconds(30), .milliseconds(40)]
+        )
+        await store2.bootstrap(enterImmediately: true)
+        try await waitUntil(timeoutMs: 1200) { store2.saveError == GameStrings.text("save.writeFailedManual") && !store2.isSaving }
+        XCTAssertEqual(store2.lastPersistedAt, retryTime, "Cold start must preserve actual retry save timestamp")
+    }
+
+    func testOrderAndWeekendAccessibilityLabelAndHintShareStatusGuidance() {
+        let previousLang = GameLocalization.shared.language
+        defer { GameLocalization.shared.language = previousLang }
+
+        let wand = MergeItem(chain: .cloth, level: 4)
+        let regular = CustomerOrder(id: "o1", customer: .ajian, items: [wand], wage: 20)
+        let weekend = CustomerOrder(id: "w20261123", customer: .grandma, items: [wand, MergeItem(chain: .wood, level: 3)], wage: 60)
+
+        for lang in [GameLanguage.simplifiedChinese, .traditionalChinese, .english] {
+            GameLocalization.shared.language = lang
+
+            let regReadyLabel = WorkshopView.orderAccessibilityLabel(for: regular, status: .deliverable, isWeekend: false)
+            let regReadyHint = WorkshopView.orderAccessibilityHint(for: .deliverable)
+            let wkReadyLabel = WorkshopView.orderAccessibilityLabel(for: weekend, status: .deliverable, isWeekend: true)
+            let wkReadyHint = WorkshopView.orderAccessibilityHint(for: .deliverable)
+
+            XCTAssertTrue(regReadyLabel.contains(GameStrings.text("order.a11y.status.deliverable")))
+            XCTAssertTrue(wkReadyLabel.contains(GameStrings.text("weekend.badge")))
+            XCTAssertTrue(wkReadyLabel.contains(GameStrings.text("order.a11y.status.deliverable")))
+            XCTAssertEqual(regReadyHint, wkReadyHint)
+            XCTAssertEqual(regReadyHint, GameStrings.text("order.a11y.hint.deliverable"))
+
+            let regIncompleteLabel = WorkshopView.orderAccessibilityLabel(for: regular, status: .incomplete, isWeekend: false)
+            let regIncompleteHint = WorkshopView.orderAccessibilityHint(for: .incomplete)
+            XCTAssertTrue(regIncompleteLabel.contains(GameStrings.text("order.a11y.status.incomplete")))
+            XCTAssertEqual(regIncompleteHint, GameStrings.text("order.a11y.hint.incomplete"))
+            XCTAssertNotEqual(regReadyHint, regIncompleteHint)
+
+            XCTAssertTrue(
+                WorkshopView.orderAccessibilityLabel(for: regular, status: .saving, isWeekend: false)
+                    .contains(GameStrings.text("order.a11y.status.saving"))
+            )
+            XCTAssertTrue(
+                WorkshopView.orderAccessibilityLabel(for: weekend, status: .retrySave, isWeekend: true)
+                    .contains(GameStrings.text("order.a11y.status.retrySave"))
+            )
+        }
+    }
+
+    func testResetProgressFromSettingsDoesNotTriggerOldMilestoneOrSeedNewDiarySeenKeys() async throws {
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+
+        let oldCreated = Date(timeIntervalSince1970: 1_760_000_000)
+        let day30Now = oldCreated.addingTimeInterval(29 * 24 * 3600)
+        let clock = MutableTestClock(day30Now)
+
+        let suiteName = "CatLifeTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(oldCreated), calendar: utcCal)
+        initial.tutorialActive = false
+        let oldKey = "CatLife.seenDayMilestones.\(initial.createdAt)"
+        defaults.set([MilestoneID.day7.rawValue, MilestoneID.day30.rawValue], forKey: oldKey)
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { clock.now },
+            calendar: utcCal,
+            userDefaults: defaults
+        )
+        try await bootstrapReady(store)
+        XCTAssertEqual(store.daysTogether, 30)
+        XCTAssertNil(store.milestoneModal)
+
+        // Open Settings and tap Reset Progress (exact repro from iPhone SE).
+        store.activeSheet = .settings
+        store.resetProgress()
+
+        XCTAssertTrue(store.state.tutorialActive)
+        XCTAssertEqual(store.daysTogether, 1)
+        XCTAssertNil(store.activeSheet)
+        XCTAssertNil(store.milestoneModal, "Resetting from a Day-30 save must never pop an old milestone over Day-1 tutorial")
+        XCTAssertNil(defaults.stringArray(forKey: oldKey))
+        let newKey = "CatLife.seenDayMilestones.\(store.state.createdAt)"
+        XCTAssertNil(defaults.stringArray(forKey: newKey), "New diary must start with zero seen day milestones")
+
+        // Fast-forward the new diary to Day 7 (after tutorial): Day 7 celebration MUST fire!
+        try await waitUntil { !store.isSaving }
+        var postTutorial = store.state
+        postTutorial.tutorialActive = false
+        let day7OfNewDiary = day30Now.addingTimeInterval(6 * 24 * 3600)
+        clock.now = day7OfNewDiary
+        let relaunched = DiaryAppStore(
+            repository: FlakySaveRepository(initialState: postTutorial),
+            adService: MockRewardedAdService(),
+            clock: { clock.now },
+            calendar: utcCal,
+            userDefaults: defaults
+        )
+        await relaunched.bootstrap(enterImmediately: true)
+        XCTAssertEqual(relaunched.daysTogether, 7)
+        XCTAssertEqual(relaunched.milestoneModal, .day7)
+        try await waitUntil { !relaunched.isSaving }
+    }
+
+    func testManuallyViewingAndKeepingDay7FromDiarySuppressesDuplicateAutoPopup() async throws {
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+
+        let day1 = Date(timeIntervalSince1970: 1_760_000_000)
+        let day6 = day1.addingTimeInterval(5 * 24 * 3600)
+        let day7 = day1.addingTimeInterval(6 * 24 * 3600)
+        let clock = MutableTestClock(day6)
+
+        let suiteName = "CatLifeTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(day1), calendar: utcCal)
+        initial.tutorialActive = false
+        let seenKey = "CatLife.seenDayMilestones.\(initial.createdAt)"
+
+        let store = DiaryAppStore(
+            repository: FlakySaveRepository(initialState: initial),
+            adService: MockRewardedAdService(),
+            clock: { clock.now },
+            calendar: utcCal,
+            userDefaults: defaults
+        )
+        try await bootstrapReady(store)
+        XCTAssertEqual(store.daysTogether, 6)
+
+        // Day 6: open Diary sheet, go to background, return on Day 7.
+        store.activeSheet = .diary
+        store.setForeground(false)
+        clock.now = day7
+        store.setForeground(true)
+        XCTAssertNil(store.milestoneModal)
+        XCTAssertTrue(store.reachedMilestones.contains(.day7))
+
+        // Player manually opens Day 7 badge from Diary (Diary dismisses while showing milestone) and taps Keep.
+        store.showMilestone(.day7)
+        store.activeSheet = nil
+        XCTAssertEqual(store.milestoneModal, .day7)
+        store.dismissMilestoneModal()
+        XCTAssertNil(store.milestoneModal)
+        XCTAssertEqual(defaults.stringArray(forKey: seenKey), [MilestoneID.day7.rawValue])
+
+        // Going to Workshop and back Home must NOT pop Day 7 a second time.
+        store.switchScreen(to: .workshop)
+        store.switchScreen(to: .home)
+        XCTAssertNil(store.milestoneModal)
+        try await waitUntil { !store.isSaving }
+    }
+
+    func testLastPersistedAtDoesNotAdvanceOnFailedSaveAndAdvancesOnRetry() async throws {
+        let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+        let t1 = t0.addingTimeInterval(300)
+        let t2 = t0.addingTimeInterval(600)
+        let clock = MutableTestClock(t0)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(t0))
+        initial.tutorialActive = false
+        initial.board.cells[0] = MergeItem(chain: .cloth, level: 3)
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { clock.now },
+            saveRetryDelays: [.milliseconds(20), .milliseconds(30), .milliseconds(40)]
+        )
+        try await bootstrapReady(store)
+        XCTAssertEqual(store.lastPersistedAt, t0)
+
+        // Fail disk writes at t1: in-memory state.updatedAt advances to t1, but lastPersistedAt MUST stay at t0!
+        clock.now = t1
+        await repo.setFailuresRemaining(10)
+        store.sellItem(at: 0)
+        try await waitUntil(timeoutMs: 1200) { store.saveError == GameStrings.text("save.writeFailedManual") && !store.isSaving }
+        XCTAssertEqual(store.state.updatedAt, DayClock.epochMs(t1))
+        XCTAssertEqual(store.lastPersistedAt, t0, "Failed disk write must not advance lastPersistedAt")
+
+        // Restore disk and retry at t2: lastPersistedAt must now advance to t2!
+        clock.now = t2
+        await repo.setFailuresRemaining(0)
+        store.retrySaveNow()
+        try await waitUntil { store.saveError == nil && !store.isSaving }
+        XCTAssertEqual(store.lastPersistedAt, t2)
+    }
+
+    func testCoverSoftTapHapticHonorsHapticsSetting() async {
+        let now = Date(timeIntervalSince1970: 1_760_000_000)
+
+        var disabledState = DiaryGameState.fresh(now: DayClock.epochMs(now))
+        disabledState.settings.audio.haptics = false
+        let disabledStore = DiaryAppStore(
+            repository: FlakySaveRepository(initialState: disabledState),
+            adService: MockRewardedAdService(),
+            clock: { now }
+        )
+        await disabledStore.bootstrap(enterImmediately: false)
+        disabledStore.audio.playSoftTapHaptic()
+        XCTAssertEqual(disabledStore.audio.hapticPlayCount, 0)
+
+        var enabledState = DiaryGameState.fresh(now: DayClock.epochMs(now))
+        enabledState.settings.audio.haptics = true
+        let enabledStore = DiaryAppStore(
+            repository: FlakySaveRepository(initialState: enabledState),
+            adService: MockRewardedAdService(),
+            clock: { now }
+        )
+        await enabledStore.bootstrap(enterImmediately: false)
+        enabledStore.audio.playSoftTapHaptic()
+        XCTAssertEqual(enabledStore.audio.hapticPlayCount, 1)
+    }
+
     private func bootstrapReady(_ store: DiaryAppStore) async throws {
         await store.bootstrap()
         while store.currentPhotoModalID != nil {
@@ -2208,6 +2644,7 @@ private enum MockSaveFailure: Error {
 
 private actor FlakySaveRepository: GameSaveRepository {
     var lastLoadDisposition: SaveLoadDisposition = .loaded
+    private(set) var lastSavedAt: Date?
     private var state: DiaryGameState
     private(set) var lastSavedState: DiaryGameState?
     private(set) var savedHistory: [DiaryGameState] = []
@@ -2219,6 +2656,7 @@ private actor FlakySaveRepository: GameSaveRepository {
 
     init(initialState: DiaryGameState) {
         self.state = initialState
+        self.lastSavedAt = DayClock.date(fromEpochMs: initialState.updatedAt)
     }
 
     func clearSavedHistory() {
@@ -2259,6 +2697,7 @@ private actor FlakySaveRepository: GameSaveRepository {
             throw MockSaveFailure.diskFull
         }
         self.state = state
+        self.lastSavedAt = now
         self.lastSavedState = state
         self.savedHistory.append(state)
     }
@@ -2303,6 +2742,10 @@ private actor GatedDiskSaveRepository: GameSaveRepository {
 
     var lastLoadDisposition: SaveLoadDisposition {
         get async { await backing.lastLoadDisposition }
+    }
+
+    var lastSavedAt: Date? {
+        get async { await backing.lastSavedAt }
     }
 
     func setFailuresRemaining(_ count: Int) {

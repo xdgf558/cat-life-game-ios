@@ -6,6 +6,17 @@ final class CatLifeUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
+        // Cover screen: the game only starts after "open the diary", and footer controls must stay on screen.
+        let enter = app.buttons["coverEnterButton"]
+        XCTAssertTrue(enter.waitForExistence(timeout: 10))
+        let privacy = app.buttons["coverPrivacyButton"]
+        XCTAssertTrue(privacy.exists)
+        let version = app.staticTexts["coverVersionText"]
+        XCTAssertTrue(version.exists)
+        XCTAssertLessThanOrEqual(version.frame.maxY, app.frame.maxY, "Cover version text must not clip past the screen bottom")
+        attachScreenshot(named: "00-Cover")
+        enter.tap()
+
         // Dismiss any queued photo reveal modal if an existing save triggered one
         let keepPhoto = app.buttons["photoKeepButton"]
         for _ in 0..<4 where keepPhoto.waitForExistence(timeout: 1.2) {

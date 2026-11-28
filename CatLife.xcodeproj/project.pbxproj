@@ -20,6 +20,7 @@
 		69F545A31F0A6E8CBD2D9F0E65684AAC /* GameSavePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 997575A7A5CB10AF9EEA6DE647468A75 /* GameSavePipeline.swift */; };
 		6EF63C3A77DD40822B0B8D91AAB4A151 /* M2ModalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 019FAB478C84B36E53A8933BAEDEC0FB /* M2ModalsView.swift */; };
 		711EEC1FA07135DC69D7EDAE69161677 /* GameAudioContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 143D85698597B854A83EA426D300E803 /* GameAudioContent.swift */; };
+		751553C2A5116E23BEECFCB86156B3DD /* CoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC13562B126664F8C12E0FAF7AE8211A /* CoverView.swift */; };
 		79312016265F2164EDF91CEB17CFA882 /* GameStrings+ZH.swift in Sources */ = {isa = PBXBuildFile; fileRef = F91DB913FF95FD2DBDBCF6950DEEC310 /* GameStrings+ZH.swift */; };
 		7B92F75BF4C7AF4BA0D2D97A8E4BC170 /* DiaryRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D95999A5D12500747DD996A7526775 /* DiaryRootView.swift */; };
 		82F9CAA949F321E5429CCD379F58CE96 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3E3BC292D4D67D945EDA739100FD77E3 /* Assets.xcassets */; };
@@ -95,6 +96,7 @@
 		C343CBFD3609CE65B48AD946F67882A6 /* DiaryAppStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DiaryAppStoreTests.swift; sourceTree = "<group>"; };
 		F302CBF439641B4C1DCBEA45C06EC49E /* OrderAndAdModalsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = OrderAndAdModalsView.swift; path = Views/OrderAndAdModalsView.swift; sourceTree = "<group>"; };
 		F91DB913FF95FD2DBDBCF6950DEEC310 /* GameStrings+ZH.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = "GameStrings+ZH.swift"; path = "Localization/GameStrings+ZH.swift"; sourceTree = "<group>"; };
+		FC13562B126664F8C12E0FAF7AE8211A /* CoverView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CoverView.swift; path = Views/CoverView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -198,6 +200,7 @@
 				995443E8CA5D25CD1CB9790CF897E845 /* GameNoticeCenter.swift */,
 				997575A7A5CB10AF9EEA6DE647468A75 /* GameSavePipeline.swift */,
 				5CAEFDCCAD581FD7A99D1F61F95C6223 /* AppRelease.swift */,
+				FC13562B126664F8C12E0FAF7AE8211A /* CoverView.swift */,
 				42D95999A5D12500747DD996A7526775 /* DiaryRootView.swift */,
 				2A539702452EE43AD3E67CF806EAE6EA /* DiarySheetView.swift */,
 				A785308D2CC9C25DA90FFD6A229EEF4B /* HomeView.swift */,
@@ -396,6 +399,7 @@
 				F6033FC1F49A0148AA4354DADB9E60DB /* GameNoticeCenter.swift in Sources */,
 				69F545A31F0A6E8CBD2D9F0E65684AAC /* GameSavePipeline.swift in Sources */,
 				FA0CC9540D49E6B3876B89919606B92B /* AppRelease.swift in Sources */,
+				751553C2A5116E23BEECFCB86156B3DD /* CoverView.swift in Sources */,
 				7B92F75BF4C7AF4BA0D2D97A8E4BC170 /* DiaryRootView.swift in Sources */,
 				96B0B944B72CB2B994BAD0D6E84F8CBB /* DiarySheetView.swift in Sources */,
 				243F41E51162752F88AEC27D70F0C641 /* HomeView.swift in Sources */,
