@@ -75,6 +75,57 @@ public struct DiaryBalance: Equatable, Sendable {
         public let rainyDayChance: Double
     }
 
+    public struct Album: Equatable, Sendable {
+        public let cozy: Double
+        public let season: Double
+        public let dream: Double
+    }
+
+    public struct Adoption: Equatable, Sendable {
+        public let minLevel: Int
+        public let duoPhotoChance: Double
+        public let followChance: Double
+        public let visitCooldownMs: Int64
+        public let trustToAdopt: Int
+    }
+
+    public struct Themes: Equatable, Sendable {
+        public let saleFromHour: Int
+        public let saleToHour: Int
+        public let saleMin: Int
+        public let saleMax: Int
+        public let saleRate: Double
+        public let saleRoundTo: Int
+    }
+
+    public struct Stories: Equatable, Sendable {
+        public let milestones: [Int]
+        public let bonusCoins: [Int: Int]
+    }
+
+    public struct Weekend: Equatable, Sendable {
+        public let level: Int
+        public let items: Int
+        public let minLevel: Int
+        public let maxLevel: Int
+        public let wageRate: Double
+    }
+
+    public struct Outing: Equatable, Sendable {
+        public let minLevel: Int
+        public let minAwayMs: Int64
+        public let maxPerDay: Int
+        public let baseChance: Double
+        public let basketChance: Double
+        public let minDurationMs: Int64
+        public let maxDurationMs: Int64
+        public let bonusPhotoChance: Double
+        public let bonusPhotoChanceHigh: Double
+        public let repeatMoodBonus: Double
+        public let coinTreasureBonus: Int
+        public let neighborNoteChance: Double
+    }
+
     public let board: Board
     public let energy: Energy
     public let generator: Generator
@@ -83,6 +134,12 @@ public struct DiaryBalance: Equatable, Sendable {
     public let sellRatio: Double
     public let cat: Cat
     public let home: Home
+    public let album: Album
+    public let adoption: Adoption
+    public let themes: Themes
+    public let stories: Stories
+    public let weekend: Weekend
+    public let outing: Outing
 
     public static let `default` = DiaryBalance(
         board: .init(cols: 6, rows: 7),
@@ -97,7 +154,8 @@ public struct DiaryBalance: Equatable, Sendable {
             .init(level: 3, kind: .room(.bedroom)),
             .init(level: 3, kind: .customer(.petshop)),
             .init(level: 4, kind: .chain(.wood)),
-            // shortcut: entrance (Lv.6) and balcony (Lv.8) unlock rules deferred until M2 adds those rooms.
+            .init(level: 6, kind: .room(.entrance)),
+            .init(level: 8, kind: .room(.balcony)),
         ],
         orders: .init(
             activeCount: 3,
@@ -137,6 +195,47 @@ public struct DiaryBalance: Equatable, Sendable {
             dailyMomentChanceHappy: 0.40,
             offlineNoteAfterMs: 30 * DayClock.minuteMs,
             rainyDayChance: 0.25
+        ),
+        album: .init(cozy: 0.12, season: 0.06, dream: 0.04),
+        adoption: .init(
+            minLevel: 7,
+            duoPhotoChance: 0.18,
+            followChance: 0.70,
+            visitCooldownMs: 4 * DayClock.hourMs,
+            trustToAdopt: 5
+        ),
+        themes: .init(
+            saleFromHour: 22,
+            saleToHour: 24,
+            saleMin: 1,
+            saleMax: 3,
+            saleRate: 0.6,
+            saleRoundTo: 10
+        ),
+        stories: .init(
+            milestones: [10, 20, 35, 50],
+            bonusCoins: [35: 150, 50: 300]
+        ),
+        weekend: .init(
+            level: 7,
+            items: 2,
+            minLevel: 4,
+            maxLevel: 5,
+            wageRate: 1.6
+        ),
+        outing: .init(
+            minLevel: 6,
+            minAwayMs: 90 * DayClock.minuteMs,
+            maxPerDay: 2,
+            baseChance: 0.55,
+            basketChance: 0.75,
+            minDurationMs: 60 * DayClock.minuteMs,
+            maxDurationMs: 180 * DayClock.minuteMs,
+            bonusPhotoChance: 0.20,
+            bonusPhotoChanceHigh: 0.35,
+            repeatMoodBonus: 5,
+            coinTreasureBonus: 5,
+            neighborNoteChance: 0.35
         )
     )
 }

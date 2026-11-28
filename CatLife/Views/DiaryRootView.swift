@@ -124,10 +124,35 @@ struct DiaryRootView: View {
                 }
                 .allowsHitTesting(false)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(19)
             }
 
-            // Story & Monetization Overlays
-            if let photoID = store.currentPhotoModalID {
+            // Story, Keepsake & Monetization Overlays (highest priority first)
+            if store.showingAdoptionModal {
+                AdoptionOverlayView {
+                    store.dismissAdoptionModal()
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(24)
+            } else if let arrival = store.arrivalModal {
+                OutingArrivalOverlayView(arrival: arrival) {
+                    store.dismissArrivalModal()
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(23)
+            } else if let story = store.currentStoryModal {
+                CustomerStoryOverlayView(story: story) {
+                    store.dismissCurrentStoryModal()
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(22)
+            } else if let milestone = store.milestoneModal {
+                MilestoneOverlayView(milestone: milestone, daysTogether: store.daysTogether) {
+                    store.dismissMilestoneModal()
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(21)
+            } else if let photoID = store.currentPhotoModalID {
                 PhotoRevealOverlayView(
                     photoID: photoID,
                     capturedAt: store.state.diary.photoDates[photoID],
@@ -176,6 +201,8 @@ struct DiaryRootView: View {
                 SettingsSheetView(store: store)
             case .orderDetail(let order):
                 OrderDetailSheetView(store: store, order: order)
+            case .basket:
+                BasketSheetView(store: store)
             }
         }
         .task {

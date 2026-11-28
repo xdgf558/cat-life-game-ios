@@ -188,7 +188,13 @@ public enum DiaryBoard {
 // MARK: - Orders & Furniture Shop
 
 public enum DeliverOrderResult: Equatable, Sendable {
-    case delivered(order: CustomerOrder, wage: Int, gift: FurnitureID?, replacement: CustomerOrder)
+    case delivered(order: CustomerOrder, wage: Int, gift: FurnitureID?, story: StoryUnlock?, replacement: CustomerOrder)
+    case notFound
+    case missingItems
+}
+
+public enum DeliverWeekendOrderResult: Equatable, Sendable {
+    case delivered(order: CustomerOrder, wage: Int, gift: FurnitureID?, story: StoryUnlock?)
     case notFound
     case missingItems
 }
@@ -198,6 +204,9 @@ public enum BuyFurnitureResult: Equatable, Sendable {
     case notForSale
     case owned
     case roomLocked(RoomID)
+    case themeLocked(Int)
+    case xueqiuLevel(Int)
+    case priceChanged(Int)
     case notEnoughCoins
 }
 
@@ -282,6 +291,7 @@ public enum DiaryOrders {
         state.coins += order.wage
         state.orders.completedTotal += 1
         let gift = advanceCustomer(&state, customer: order.customer, balance: balance)
+        let story = DiaryStories.claimStory(&state, customer: order.customer, balance: balance)
         if state.target?.orderID == order.id { state.target = nil }
 
         let replacement: CustomerOrder
@@ -295,7 +305,78 @@ public enum DiaryOrders {
             replacement = generateOrder(&state, rng: &rng, balance: balance)
         }
         state.orders.active[idx] = replacement
-        return .delivered(order: order, wage: order.wage, gift: gift, replacement: replacement)
+        return .delivered(order: order, wage: order.wage, gift: gift, story: story, replacement: replacement)
+    }
+
+    public static func syncWeekendOrder(_ state: inout DiaryGameState, balance: DiaryBalance = .default) {
+        let previousID = state.orders.weekendOrder?.id
+        guard let week = DiaryStories.weekendWeek(for: state, balance: balance) else {
+            state.orders.weekendOrder = nil
+            clearStaleWeekendTarget(&state, previousID: previousID)
+            return
+        }
+        let nextID = "w\(week)"
+        if state.orders.weekendOrder?.id != nextID {
+            state.orders.weekendOrder = DiaryStories.weekendOrder(for: state, week: week, balance: balance)
+            clearStaleWeekendTarget(&state, previousID: previousID)
+        } else {
+            clearStaleWeekendTarget(&state, previousID: nil)
+        }
+    }
+
+    private static func clearStaleWeekendTarget(_ state: inout DiaryGameState, previousID: String?) {
+        guard let targetOrderID = state.target?.orderID else { return }
+        if let previousID, targetOrderID == previousID, state.orders.weekendOrder?.id != previousID {
+            state.target = nil
+            return
+        }
+        if targetOrderID.hasPrefix("w"), state.orders.weekendOrder?.id != targetOrderID {
+            state.target = nil
+        }
+    }
+
+    public static func deliverWeekendOrder(
+        _ state: inout DiaryGameState,
+        expectedID: String? = nil,
+        fallbackOrder: CustomerOrder? = nil,
+        preferredCells: [Int] = [],
+        balance: DiaryBalance = .default
+    ) -> DeliverWeekendOrderResult {
+        let order: CustomerOrder
+        if let expectedID {
+            if let active = state.orders.weekendOrder, active.id == expectedID {
+                order = active
+            } else if let fallback = fallbackOrder, fallback.id == expectedID {
+                order = fallback
+            } else {
+                return .notFound
+            }
+        } else if let active = state.orders.weekendOrder ?? fallbackOrder {
+            order = active
+        } else {
+            return .notFound
+        }
+        if order.id.hasPrefix("w"), let week = Int(order.id.dropFirst()),
+           let done = state.orders.weekendDoneWeek, done >= week {
+            return .notFound
+        }
+        guard canDeliver(state, order: order) else { return .missingItems }
+        var remainingPreferred = preferredCells
+        for item in order.items {
+            DiaryBoard.takeFromBoard(&state, item: item, preferredCells: &remainingPreferred)
+        }
+        state.coins += order.wage
+        state.orders.completedTotal += 1
+        let gift = advanceCustomer(&state, customer: order.customer, balance: balance)
+        let story = DiaryStories.claimStory(&state, customer: order.customer, balance: balance)
+        if state.target?.orderID == order.id { state.target = nil }
+        if state.orders.weekendOrder?.id == order.id {
+            state.orders.weekendOrder = nil
+        }
+        if order.id.hasPrefix("w"), let week = Int(order.id.dropFirst()) {
+            state.orders.weekendDoneWeek = max(state.orders.weekendDoneWeek ?? 0, week)
+        }
+        return .delivered(order: order, wage: order.wage, gift: gift, story: story)
     }
 
     private static func advanceCustomer(
@@ -339,22 +420,35 @@ public enum DiaryOrders {
     }
 
     public static func placeNewFurniture(_ state: inout DiaryGameState, id: FurnitureID) {
-        guard !state.home.layout.contains(where: { $0.id == id }),
-              let def = DiaryCatalog.furnitureDef(id) else { return }
-        state.home.layout.append(
-            PlacedFurniture(id: id, room: def.room, x: def.defaultX, bottom: def.defaultBottom)
-        )
+        DiaryLayout.placeNewFurniture(&state, id: id)
     }
 
     public static func buyFurniture(
         _ state: inout DiaryGameState,
         id: FurnitureID,
+        now: Int64? = nil,
+        quoted: Int? = nil,
+        committedPrice: Int? = nil,
+        calendar: Calendar = .current,
         balance: DiaryBalance = .default
     ) -> BuyFurnitureResult {
-        guard let def = DiaryCatalog.furnitureDef(id), let price = def.price else { return .notForSale }
+        guard let def = DiaryCatalog.furnitureDef(id), let basePrice = def.price else { return .notForSale }
         if state.home.furnitureOwned.contains(id) { return .owned }
-        if !DiaryProgression.roomUnlocked(state, room: def.room, balance: balance) {
-            return .roomLocked(def.room)
+        if let lock = DiaryThemes.furnitureLock(state, id: id, balance: balance) {
+            switch lock {
+            case .room(let room): return .roomLocked(room)
+            case .theme(let level): return .themeLocked(level)
+            case .xueqiu(let level): return .xueqiuLevel(level)
+            }
+        }
+        let price: Int
+        if let committedPrice {
+            price = committedPrice
+        } else {
+            price = now.map { DiaryThemes.priceNow(furniture: id, now: $0, calendar: calendar, balance: balance) } ?? basePrice
+            if let quoted, quoted != price {
+                return .priceChanged(price)
+            }
         }
         guard state.coins >= price else { return .notEnoughCoins }
         state.coins -= price
@@ -364,14 +458,20 @@ public enum DiaryOrders {
         return .bought(furniture: id, price: price)
     }
 
-    public static func wishlistShortfall(_ state: DiaryGameState, balance: DiaryBalance = .default) -> Int? {
+    public static func wishlistShortfall(
+        _ state: DiaryGameState,
+        now: Int64? = nil,
+        calendar: Calendar = .current,
+        balance: DiaryBalance = .default
+    ) -> Int? {
         guard let id = state.home.wishlist,
               let def = DiaryCatalog.furnitureDef(id),
-              let price = def.price,
+              let basePrice = def.price,
               !state.home.furnitureOwned.contains(id),
-              DiaryProgression.roomUnlocked(state, room: def.room, balance: balance) else {
+              DiaryThemes.furnitureLock(state, id: id, balance: balance) == nil else {
             return nil
         }
+        let price = now.map { DiaryThemes.priceNow(furniture: id, now: $0, calendar: calendar, balance: balance) } ?? basePrice
         return max(0, price - state.coins)
     }
 }

@@ -262,8 +262,17 @@ public enum DiaryAds {
             return nil
         }
         if DiaryLedger.isClaimed(state, key: "material:target:\(target.id)") { return nil }
-        let activeOrder = target.orderID.flatMap { id in state.orders.active.first(where: { $0.id == id }) }
-        let gap = materialGap(state, target: target.item, order: activeOrder, reservedCells: reservedCells)
+        let liveOrder: CustomerOrder?
+        if let orderID = target.orderID {
+            guard let found = state.orders.active.first(where: { $0.id == orderID })
+                ?? (state.orders.weekendOrder?.id == orderID ? state.orders.weekendOrder : nil) else {
+                return nil
+            }
+            liveOrder = found
+        } else {
+            liveOrder = nil
+        }
+        let gap = materialGap(state, target: target.item, order: liveOrder, reservedCells: reservedCells)
         guard gap > 0 && gap <= config.materialMaxCount else { return nil }
         var energyCopy = state
         let energy = DiaryEnergy.settle(&energyCopy, now: now, balance: balance)
@@ -319,19 +328,62 @@ public enum DiaryAds {
         markOfferShown(&state, now: now)
     }
 
-    public static func nearestFurniture(_ state: DiaryGameState, balance: DiaryBalance = .default) -> FurnitureDef? {
-        DiaryCatalog.shopFurniture
+    public enum WageOfferInvalidReason: String, Equatable, Sendable {
+        case affordable
+        case priceUp
+    }
+
+    public static func nearestFurniture(
+        _ state: DiaryGameState,
+        now: Int64? = nil,
+        calendar: Calendar = .current,
+        balance: DiaryBalance = .default
+    ) -> FurnitureDef? {
+        func effectivePrice(_ def: FurnitureDef) -> Int {
+            now.map { DiaryThemes.priceNow(furniture: def.id, now: $0, calendar: calendar, balance: balance) } ?? (def.price ?? 0)
+        }
+        return DiaryCatalog.shopFurniture
             .filter { def in
                 !state.home.furnitureOwned.contains(def.id)
-                    && DiaryProgression.roomUnlocked(state, room: def.room, balance: balance)
+                    && DiaryThemes.furnitureLock(state, id: def.id, balance: balance) == nil
             }
             .sorted { lhs, rhs in
-                let lGap = max(0, (lhs.price ?? 0) - state.coins)
-                let rGap = max(0, (rhs.price ?? 0) - state.coins)
+                let lp = effectivePrice(lhs)
+                let rp = effectivePrice(rhs)
+                let lGap = max(0, lp - state.coins)
+                let rGap = max(0, rp - state.coins)
                 if lGap != rGap { return lGap < rGap }
-                return (lhs.price ?? 0) < (rhs.price ?? 0)
+                return lp < rp
             }
             .first
+    }
+
+    public static func wageOfferInvalidReason(
+        _ state: DiaryGameState,
+        offer: WageOffer,
+        config: AdRemoteConfig,
+        now: Int64,
+        calendar: Calendar = .current,
+        balance: DiaryBalance = .default
+    ) -> WageOfferInvalidReason? {
+        if offer.amount >= config.wageMinAmount || offer.wishlistShortAfter != 0 {
+            return nil
+        }
+        let short = DiaryOrders.wishlistShortfall(state, now: now, calendar: calendar, balance: balance)
+        if short == 0 { return .affordable }
+        if let short, short <= offer.amount { return nil }
+        return .priceUp
+    }
+
+    public static func wageOfferStillValid(
+        _ state: DiaryGameState,
+        offer: WageOffer,
+        config: AdRemoteConfig,
+        now: Int64,
+        calendar: Calendar = .current,
+        balance: DiaryBalance = .default
+    ) -> Bool {
+        wageOfferInvalidReason(state, offer: offer, config: config, now: now, calendar: calendar, balance: balance) == nil
     }
 
     public static func wageOffer(
@@ -339,13 +391,14 @@ public enum DiaryAds {
         order: CustomerOrder,
         config: AdRemoteConfig,
         now: Int64,
+        calendar: Calendar = .current,
         balance: DiaryBalance = .default
     ) -> WageOffer? {
         if state.orders.materialAdOrderIDs.contains(order.id) { return nil }
         if DiaryLedger.isClaimed(state, key: "wage:order:\(order.id)") { return nil }
         if quotaBlock(state, slot: .wage, config: config, now: now) != nil { return nil }
 
-        let short = DiaryOrders.wishlistShortfall(state, balance: balance)
+        let short = DiaryOrders.wishlistShortfall(state, now: now, calendar: calendar, balance: balance)
         let after = short.map { max(0, $0 - order.wage) }
         // Skip small orders unless doubling completes the player's wishlisted furniture.
         if order.wage < config.wageMinAmount && !(short != nil && short! > 0 && after == 0) {
@@ -354,14 +407,17 @@ public enum DiaryAds {
         let anchoredDef: FurnitureDef? = if short != nil, let wish = state.home.wishlist {
             DiaryCatalog.furnitureDef(wish)
         } else {
-            nearestFurniture(state, balance: balance)
+            nearestFurniture(state, now: now, calendar: calendar, balance: balance)
+        }
+        let effectivePrice = anchoredDef.map {
+            DiaryThemes.priceNow(furniture: $0.id, now: now, calendar: calendar, balance: balance)
         }
         return WageOffer(
             orderID: order.id,
             amount: order.wage,
             wishlistShortAfter: after,
             furniture: anchoredDef?.id,
-            furniturePrice: anchoredDef?.price
+            furniturePrice: effectivePrice
         )
     }
 }

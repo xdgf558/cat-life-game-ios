@@ -13,110 +13,161 @@ struct OrderDetailSheetView: View {
         let checks = store.unreservedOrderItemMatches(for: order)
         let progress = store.state.orders.customerProgress[order.customer] ?? 0
         let giftEvery = DiaryBalance.default.orders.giftEveryOrders
-        let canReroll = store.state.orders.rerollsUsedToday < DiaryBalance.default.orders.freeRerollsPerDay
+        let isWeekend = order.id.hasPrefix("w") || store.displayedWeekendOrder?.id == order.id
+        let unlockedStories = DiaryStories.storiesUnlocked(store.state, customer: order.customer)
+        let nextStoryOrders = DiaryStories.ordersToNextStory(store.state, customer: order.customer)
+        let totalStories = DiaryBalance.default.stories.milestones.count
+        let canReroll = !isWeekend
+            && store.state.orders.rerollsUsedToday < DiaryBalance.default.orders.freeRerollsPerDay
             && !(store.isSaving && !store.pendingOrderDeliveries.isEmpty)
 
         NavigationStack {
-            VStack(spacing: 14) {
-                HStack(spacing: 12) {
-                    Image(order.customer.avatarAssetName)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 58, height: 58)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(RoomTheme.wood, lineWidth: 2))
+            ScrollView {
+                VStack(spacing: 14) {
+                    HStack(spacing: 12) {
+                        Image(order.customer.avatarAssetName)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 58, height: 58)
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(isWeekend ? RoomTheme.gold : RoomTheme.wood, lineWidth: 2))
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(GameStrings.format("order.detailTitle", GameStrings.customerName(order.customer)))
-                            .font(.system(size: 18, weight: .heavy, design: .rounded))
-                            .foregroundStyle(RoomTheme.ink)
-                        HStack(spacing: 4) {
-                            AssetOrSymbol(asset: "ui_coin", symbol: "dollarsign.circle.fill", size: 15, tint: RoomTheme.gold)
-                            Text(GameStrings.format("order.wageLabel", order.wage))
-                                .font(.system(size: 14, weight: .heavy, design: .rounded))
-                                .foregroundStyle(RoomTheme.gold)
-                        }
-                        Text(GameStrings.format("order.customerProgress", min(progress, giftEvery), giftEvery))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(RoomTheme.secondary)
-                    }
-                    Spacer()
-                }
-                .padding(14)
-                .background(RoomTheme.paper, in: RoundedRectangle(cornerRadius: 18))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(RoomTheme.wood.opacity(0.7), lineWidth: 1.2))
-
-                VStack(spacing: 10) {
-                    ForEach(Array(order.items.enumerated()), id: \.offset) { idx, item in
-                        let hasIt = idx < checks.count && checks[idx]
-                        let isPinned = store.state.target?.item == item && store.state.target?.orderID == order.id
-                        HStack(spacing: 12) {
-                            Image(item.assetName)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 44, height: 44)
-                                .padding(4)
-                                .background(RoomTheme.cream, in: RoundedRectangle(cornerRadius: 12))
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(GameStrings.itemName(item))
-                                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Text(GameStrings.format("order.detailTitle", GameStrings.customerName(order.customer)))
+                                    .font(.system(size: 18, weight: .heavy, design: .rounded))
                                     .foregroundStyle(RoomTheme.ink)
-                                Text(GameStrings.format("common.lvFormat", item.level))
-                                    .font(.caption.weight(.bold))
+                                if isWeekend {
+                                    Text(GameStrings.text("weekend.badge"))
+                                        .font(.system(size: 10, weight: .black, design: .rounded))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 2)
+                                        .background(RoomTheme.gold, in: Capsule())
+                                }
+                            }
+                            if isWeekend {
+                                Text(GameStrings.weekendOrderLine(for: order.customer))
+                                    .font(.caption.weight(.semibold))
                                     .foregroundStyle(RoomTheme.secondary)
                             }
-                            Spacer()
-                            if hasIt {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.title3)
-                                    .foregroundStyle(RoomTheme.mint)
-                            } else {
-                                Button(isPinned ? GameStrings.text("workshop.clearTarget") : GameStrings.text("workshop.pinTarget")) {
-                                    if isPinned { store.clearTarget() }
-                                    else { store.setTarget(item: item, orderID: order.id) }
+                            HStack(spacing: 4) {
+                                AssetOrSymbol(asset: "ui_coin", symbol: "dollarsign.circle.fill", size: 15, tint: RoomTheme.gold)
+                                Text(GameStrings.format("order.wageLabel", order.wage))
+                                    .font(.system(size: 14, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(RoomTheme.gold)
+                            }
+                            Text(GameStrings.format("order.customerProgress", min(progress, giftEvery), giftEvery))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(RoomTheme.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(14)
+                    .background(RoomTheme.paper, in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke((isWeekend ? RoomTheme.gold : RoomTheme.wood).opacity(0.75), lineWidth: 1.3))
+
+                    VStack(spacing: 10) {
+                        ForEach(Array(order.items.enumerated()), id: \.offset) { idx, item in
+                            let hasIt = idx < checks.count && checks[idx]
+                            let isPinned = store.state.target?.item == item && store.state.target?.orderID == order.id
+                            HStack(spacing: 12) {
+                                Image(item.assetName)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 44, height: 44)
+                                    .padding(4)
+                                    .background(RoomTheme.cream, in: RoundedRectangle(cornerRadius: 12))
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(GameStrings.itemName(item))
+                                        .font(.system(size: 15, weight: .heavy, design: .rounded))
+                                        .foregroundStyle(RoomTheme.ink)
+                                    Text(GameStrings.format("common.lvFormat", item.level))
+                                        .font(.caption.weight(.bold))
+                                        .foregroundStyle(RoomTheme.secondary)
                                 }
-                                .font(.system(size: 12, weight: .heavy, design: .rounded))
-                                .foregroundStyle(isPinned ? RoomTheme.coralDeep : RoomTheme.ink)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(isPinned ? RoomTheme.paleCoral : RoomTheme.chipBg, in: Capsule())
+                                Spacer()
+                                if hasIt {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.title3)
+                                        .foregroundStyle(RoomTheme.mint)
+                                } else {
+                                    Button(isPinned ? GameStrings.text("workshop.clearTarget") : GameStrings.text("workshop.pinTarget")) {
+                                        if isPinned { store.clearTarget() }
+                                        else { store.setTarget(item: item, orderID: order.id) }
+                                    }
+                                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(isPinned ? RoomTheme.coralDeep : RoomTheme.ink)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(isPinned ? RoomTheme.paleCoral : RoomTheme.chipBg, in: Capsule())
+                                }
+                            }
+                            .padding(12)
+                            .background(RoomTheme.paper, in: RoundedRectangle(cornerRadius: 16))
+                            .overlay(RoundedRectangle(cornerRadius: 16).stroke(RoomTheme.wood.opacity(0.6), lineWidth: 1))
+                        }
+                    }
+
+                    // Customer Serialized Stories Replay Section
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(GameStrings.format("story.sectionTitle", unlockedStories, totalStories))
+                                .font(.system(size: 13.5, weight: .heavy, design: .rounded))
+                                .foregroundStyle(RoomTheme.ink)
+                            Spacer()
+                            if let remaining = nextStoryOrders {
+                                Text(GameStrings.format("story.nextHint", remaining))
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(RoomTheme.secondary)
                             }
                         }
-                        .padding(12)
-                        .background(RoomTheme.paper, in: RoundedRectangle(cornerRadius: 16))
-                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(RoomTheme.wood.opacity(0.6), lineWidth: 1))
-                    }
-                }
 
-                Spacer()
-
-                HStack(spacing: 12) {
-                    Button(GameStrings.text("order.reroll")) {
-                        store.rerollOrder(order.id)
-                    }
-                    .buttonStyle(SoftPaperButtonStyle())
-                    .frame(maxWidth: .infinity)
-                    .disabled(!canReroll)
-
-                    Button(
-                        status == .saving
-                            ? GameStrings.text("common.saving")
-                            : (status == .retrySave ? GameStrings.text("save.retry") : GameStrings.text("order.deliver"))
-                    ) {
-                        if status == .retrySave {
-                            store.retrySaveNow()
-                        } else {
-                            store.deliverOrder(order.id)
+                        if unlockedStories > 0 {
+                            ForEach(0..<unlockedStories, id: \.self) { idx in
+                                Text(GameStrings.customerStoryText(customer: order.customer, index: idx))
+                                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                                    .foregroundStyle(RoomTheme.secondary)
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(RoomTheme.rewardPaper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
                         }
-                        dismiss()
                     }
-                    .buttonStyle(WarmButtonStyle(fill: status == .retrySave ? RoomTheme.coral : RoomTheme.mint, shadowColor: status == .retrySave ? RoomTheme.coralDeep : RoomTheme.darkMint))
-                    .frame(maxWidth: .infinity)
-                    .disabled(status == .saving || status == .incomplete)
+                    .padding(12)
+                    .background(RoomTheme.paper, in: RoundedRectangle(cornerRadius: 16))
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(RoomTheme.wood.opacity(0.5), lineWidth: 1))
+
+                    HStack(spacing: 12) {
+                        if !isWeekend {
+                            Button(GameStrings.text("order.reroll")) {
+                                store.rerollOrder(order.id)
+                            }
+                            .buttonStyle(SoftPaperButtonStyle())
+                            .frame(maxWidth: .infinity)
+                            .disabled(!canReroll)
+                        }
+
+                        Button(
+                            status == .saving
+                                ? GameStrings.text("common.saving")
+                                : (status == .retrySave ? GameStrings.text("save.retry") : GameStrings.text("order.deliver"))
+                        ) {
+                            if status == .retrySave {
+                                store.retrySaveNow()
+                            } else {
+                                store.deliverOrder(order.id)
+                            }
+                            dismiss()
+                        }
+                        .buttonStyle(WarmButtonStyle(fill: status == .retrySave ? RoomTheme.coral : RoomTheme.mint, shadowColor: status == .retrySave ? RoomTheme.coralDeep : RoomTheme.darkMint))
+                        .frame(maxWidth: .infinity)
+                        .disabled(status == .saving || status == .incomplete)
+                    }
                 }
+                .padding(16)
             }
-            .padding(16)
             .background(RoomTheme.cream.ignoresSafeArea())
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -126,7 +177,7 @@ struct OrderDetailSheetView: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 }
 

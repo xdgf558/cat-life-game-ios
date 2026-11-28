@@ -8,14 +8,22 @@ public enum DiaryGameEvent: Equatable, Sendable {
     case pendingClaimed(MergeItem)
     case orderDelivered(order: CustomerOrder, wage: Int, bonusOffer: WageOffer?)
     case giftReceived(customer: CustomerID, furniture: FurnitureID)
+    case storyUnlocked(StoryUnlock)
     case orderRerolled(oldID: String, order: CustomerOrder)
     case furnitureBought(furniture: FurnitureID, price: Int)
+    case roomSkinApplied(skin: RoomSkinID, price: Int)
     case broughtHome(MergeItem)
     case catPlayed(cat: CatID, item: MergeItem, wornOut: Bool)
     case catFed(cat: CatID, item: MergeItem)
     case catPetted(cat: CatID)
     case furnitureFirstUse(cat: CatID, furniture: FurnitureID)
     case homeVisited(offlineNoteID: String?)
+    case catDeparted(spot: OutingSpot, packedItem: MergeItem?)
+    case catReturned(OutingArrival)
+    case catRecalled
+    case strayArrived(trust: Int, ate: MergeItem?)
+    case strayMet(trust: Int, ate: MergeItem?, adopted: Bool)
+    case basketChanged(MergeItem?)
     case photoTaken(cat: CatID, photoID: String)
     case levelUp(cat: CatID, level: Int, unlocks: [UnlockRule])
     case wishCompleted(cat: CatID, goal: WishGoal, bonusXP: Int)
@@ -40,19 +48,22 @@ public final class DiaryGameEngine {
     public var adConfig: AdRemoteConfig
     public let calendar: Calendar
     private var rng: any RandomSource
+    private var atHome: Bool
 
     public init(
         state: DiaryGameState,
         balance: DiaryBalance = .default,
         adConfig: AdRemoteConfig = .default,
         rng: any RandomSource = SystemRandomSource(),
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        atHome: Bool = false
     ) {
         self.state = state
         self.balance = balance
         self.adConfig = adConfig
         self.rng = rng
         self.calendar = calendar
+        self.atHome = atHome
     }
 
     public func cloned() -> DiaryGameEngine {
@@ -61,7 +72,8 @@ public final class DiaryGameEngine {
             balance: balance,
             adConfig: adConfig,
             rng: rng,
-            calendar: calendar
+            calendar: calendar,
+            atHome: atHome
         )
     }
 
@@ -159,13 +171,50 @@ public final class DiaryGameEngine {
                 rng: &rng,
                 balance: balance
             )
-            guard case .delivered(let order, let wage, let gift, _) = result else {
+            guard case .delivered(let order, let wage, let gift, let story, _) = result else {
                 return (result, nil)
             }
-            let bonus = DiaryAds.wageOffer(state, order: order, config: adConfig, now: now, balance: balance)
+            let bonus = DiaryAds.wageOffer(state, order: order, config: adConfig, now: now, calendar: calendar, balance: balance)
             events.append(.orderDelivered(order: order, wage: wage, bonusOffer: bonus))
             if let gift { events.append(.giftReceived(customer: order.customer, furniture: gift)) }
+            if let story { events.append(.storyUnlocked(story)) }
             return (result, bonus)
+        }
+    }
+
+    public func deliverWeekendOrder(
+        expectedID: String? = nil,
+        fallbackOrder: CustomerOrder? = nil,
+        preferredCells: [Int] = [],
+        now: Int64
+    ) -> EngineCommandOutput<DeliverWeekendOrderResult> {
+        run(now: now) { events in
+            let result = DiaryOrders.deliverWeekendOrder(
+                &state,
+                expectedID: expectedID,
+                fallbackOrder: fallbackOrder,
+                preferredCells: preferredCells,
+                balance: balance
+            )
+            if case .delivered(let order, let wage, let gift, let story) = result {
+                events.append(.orderDelivered(order: order, wage: wage, bonusOffer: nil))
+                if let gift { events.append(.giftReceived(customer: order.customer, furniture: gift)) }
+                if let story { events.append(.storyUnlocked(story)) }
+            }
+            return result
+        }
+    }
+
+    public func takeStoryBackpay(now: Int64) -> EngineCommandOutput<Int> {
+        let amount = state.orders.storyBackpay
+        guard amount > 0 else {
+            return EngineCommandOutput(value: 0, events: [], didMutate: false)
+        }
+        return run(now: now) { _ in
+            let credited = state.orders.storyBackpay
+            state.coins += credited
+            state.orders.storyBackpay = 0
+            return credited
         }
     }
 
@@ -177,11 +226,59 @@ public final class DiaryGameEngine {
         }
     }
 
-    public func buyFurniture(id: FurnitureID, now: Int64) -> EngineCommandOutput<BuyFurnitureResult> {
+    public func buyFurniture(
+        id: FurnitureID,
+        quoted: Int? = nil,
+        committedPrice: Int? = nil,
+        now: Int64
+    ) -> EngineCommandOutput<BuyFurnitureResult> {
         run(now: now) { events in
-            let result = DiaryOrders.buyFurniture(&state, id: id, balance: balance)
+            let result = DiaryOrders.buyFurniture(
+                &state,
+                id: id,
+                now: now,
+                quoted: quoted,
+                committedPrice: committedPrice,
+                calendar: calendar,
+                balance: balance
+            )
             if case .bought(let furniture, let price) = result {
                 events.append(.furnitureBought(furniture: furniture, price: price))
+            }
+            return result
+        }
+    }
+
+    public func buyRoomSkin(
+        id: RoomSkinID,
+        quoted: Int? = nil,
+        committedPrice: Int? = nil,
+        equip: Bool = true,
+        now: Int64
+    ) -> EngineCommandOutput<RoomSkinActionResult> {
+        run(now: now) { events in
+            let result = DiaryThemes.buyRoomSkin(
+                &state,
+                id: id,
+                now: now,
+                quoted: quoted,
+                committedPrice: committedPrice,
+                equip: equip,
+                calendar: calendar,
+                balance: balance
+            )
+            if case .applied(let skin, let price) = result {
+                events.append(.roomSkinApplied(skin: skin, price: price))
+            }
+            return result
+        }
+    }
+
+    public func equipRoomSkin(id: RoomSkinID, now: Int64) -> EngineCommandOutput<RoomSkinActionResult> {
+        run(now: now) { events in
+            let result = DiaryThemes.equipRoomSkin(&state, id: id)
+            if case .applied(let skin, let price) = result {
+                events.append(.roomSkinApplied(skin: skin, price: price))
             }
             return result
         }
@@ -193,7 +290,7 @@ public final class DiaryGameEngine {
         }
     }
 
-    // MARK: - Home
+    // MARK: - Home, Decorate, Outing & Adoption
 
     public func bringHome(cellIndex: Int, now: Int64) -> EngineCommandOutput<BringHomeResult> {
         run(now: now) { events in
@@ -247,26 +344,165 @@ public final class DiaryGameEngine {
 
     public func visitHome(now: Int64) -> EngineCommandOutput<HomeVisitResult> {
         run(now: now) { events in
+            atHome = true
             let visit = DiaryHome.visitHome(&state, now: now, rng: &rng, balance: balance, calendar: calendar)
+            if let departed = visit.outingDeparted {
+                events.append(.catDeparted(spot: departed.spot, packedItem: departed.packedItem))
+            }
+            if let arrived = visit.outingArrived {
+                events.append(.catReturned(arrived))
+            }
             events.append(.homeVisited(offlineNoteID: visit.offlineNoteID))
-            for f in visit.furnitureUsed { events.append(.furnitureFirstUse(cat: .primary, furniture: f)) }
-            emitReaction(cat: .primary, photos: visit.newPhotos, levelUps: visit.levelUps, into: &events)
+            // Settle stray Xueqiu AFTER Xiaoju outing so basket ownership is first-come-first-served.
+            if let stray = DiaryAdoption.settleStray(&state, now: now, balance: balance) {
+                events.append(.strayArrived(trust: stray.trust, ate: stray.ate))
+            }
+            for catVisit in visit.cats {
+                for f in catVisit.furnitureUsed {
+                    events.append(.furnitureFirstUse(cat: catVisit.cat, furniture: f))
+                }
+                emitReaction(cat: catVisit.cat, photos: catVisit.newPhotos, levelUps: catVisit.levelUps, into: &events)
+            }
+            if let albumPhoto = visit.albumPhoto {
+                events.append(.photoTaken(cat: .primary, photoID: albumPhoto))
+            }
             return visit
         }
     }
 
     public func leaveHome(now: Int64) -> EngineCommandOutput<Void> {
         run(now: now) { _ in
-            state.home.lastVisitAt = now
+            guard atHome else { return }
+            markPresence(now: now)
+            atHome = false
+        }
+    }
+
+    public func stayHome(now: Int64) -> EngineCommandOutput<Void> {
+        run(now: now) { _ in }
+    }
+
+    public func checkOuting(now: Int64) -> EngineCommandOutput<OutingArrival?> {
+        run(now: now) { _ in
+            state.home.outing == nil ? state.home.pendingArrival : nil
+        }
+    }
+
+    public func claimArrival(now: Int64) -> EngineCommandOutput<OutingArrival?> {
+        run(now: now) { events in
+            let arrival = DiaryOuting.claimArrival(&state)
+            if let bonusPhoto = arrival?.bonusPhoto {
+                var cat = state.primaryCat
+                let ups = DiaryProgression.addXP(&cat, amount: balance.cat.xpFirstReaction, balance: balance)
+                state.primaryCat = cat
+                emitReaction(cat: .primary, photos: [bonusPhoto], levelUps: ups, into: &events)
+            }
+            return arrival
+        }
+    }
+
+    public func packBasket(source: BasketSource, index: Int, now: Int64) -> EngineCommandOutput<BasketActionResult> {
+        run(now: now) { events in
+            let result = DiaryOuting.packBasket(&state, source: source, index: index, balance: balance)
+            if case .updated(let item) = result {
+                events.append(.basketChanged(item))
+            }
+            return result
+        }
+    }
+
+    public func unpackBasket(now: Int64) -> EngineCommandOutput<BasketActionResult> {
+        run(now: now) { events in
+            let result = DiaryOuting.unpackBasket(&state, balance: balance)
+            if case .updated = result {
+                events.append(.basketChanged(nil))
+            }
+            return result
+        }
+    }
+
+    public func recallCat(now: Int64) -> EngineCommandOutput<RecallCatResult> {
+        run(now: now) { events in
+            let activeOuting = state.home.outing
+            let result = DiaryOuting.recallCat(&state, now: now)
+            if case .recalled = result, let activeOuting {
+                let truncated = OutingState(
+                    departAt: activeOuting.departAt,
+                    returnAt: max(activeOuting.departAt, now),
+                    packedItem: activeOuting.packedItem,
+                    spot: activeOuting.spot
+                )
+                var cat = state.primaryCat
+                DiaryHome.settleAroundTrip(&cat, trip: truncated, now: now, balance: balance)
+                state.primaryCat = cat
+                events.append(.catRecalled)
+            }
+            return result
+        }
+    }
+
+    public func checkStray(now: Int64) -> EngineCommandOutput<StrayArrival?> {
+        run(now: now) { events in
+            let stray = DiaryAdoption.settleStray(&state, now: now, balance: balance)
+            if let stray {
+                events.append(.strayArrived(trust: stray.trust, ate: stray.ate))
+            }
+            return stray
+        }
+    }
+
+    public func meetStray(now: Int64) -> EngineCommandOutput<StrayInteractResult> {
+        run(now: now) { events in
+            let result = DiaryAdoption.interactStray(&state, now: now, balance: balance)
+            if case .met(let trust, let ate, let adopted, let newPhotos, let levelUps) = result {
+                events.append(.strayMet(trust: trust, ate: ate, adopted: adopted))
+                emitReaction(cat: .xueqiu, photos: newPhotos, levelUps: levelUps, into: &events)
+            }
+            return result
+        }
+    }
+
+    public func placeFurniture(
+        id: FurnitureID,
+        room: RoomID,
+        x: Double,
+        bottom: Double,
+        flip: Bool? = nil,
+        now: Int64
+    ) -> EngineCommandOutput<PlaceFurnitureResult> {
+        run(now: now) { _ in
+            DiaryLayout.placeFurniture(&state, id: id, room: room, x: x, bottom: bottom, flip: flip, balance: balance)
+        }
+    }
+
+    public func toggleFurnitureFlip(id: FurnitureID, now: Int64) -> EngineCommandOutput<FlipFurnitureResult> {
+        run(now: now) { _ in
+            DiaryLayout.toggleFurnitureFlip(&state, id: id)
+        }
+    }
+
+    public func storeFurniture(id: FurnitureID, now: Int64) -> EngineCommandOutput<StoreFurnitureResult> {
+        run(now: now) { _ in
+            DiaryLayout.storeFurniture(&state, id: id)
+        }
+    }
+
+    public func resetRoomLayout(room: RoomID, now: Int64) -> EngineCommandOutput<Void> {
+        run(now: now) { _ in
+            DiaryLayout.resetRoomLayout(&state, room: room)
         }
     }
 
     public func settleNewFurniture(now: Int64) -> EngineCommandOutput<NewFurnitureReaction> {
         run(now: now) { events in
-            let reaction = DiaryHome.settleNewFurniture(&state, now: now, balance: balance)
-            for f in reaction.furnitureUsed { events.append(.furnitureFirstUse(cat: .primary, furniture: f)) }
-            emitReaction(cat: .primary, photos: reaction.newPhotos, levelUps: reaction.levelUps, into: &events)
-            return reaction
+            let result = DiaryHome.settleNewFurniture(&state, now: now, balance: balance)
+            for reaction in result.reactions {
+                for f in reaction.furnitureUsed {
+                    events.append(.furnitureFirstUse(cat: reaction.cat, furniture: f))
+                }
+                emitReaction(cat: reaction.cat, photos: reaction.newPhotos, levelUps: reaction.levelUps, into: &events)
+            }
+            return result
         }
     }
 
@@ -289,6 +525,7 @@ public final class DiaryGameEngine {
         let keptSettings = state.settings
         state = DiaryGameState.fresh(now: now, balance: balance, calendar: calendar)
         state.settings = keptSettings
+        atHome = false
         DiaryOrders.ensureOrders(&state, rng: &rng, balance: balance)
         return EngineCommandOutput(value: (), events: [], didMutate: true)
     }
@@ -348,9 +585,20 @@ public final class DiaryGameEngine {
         }
     }
 
+    public func wageOfferStillValid(_ offer: AdOffer, now: Int64) -> Bool {
+        guard case .wage(let wage) = offer else { return true }
+        return DiaryAds.wageOfferStillValid(state, offer: wage, config: adConfig, now: now, calendar: calendar, balance: balance)
+    }
+
+    public func wageOfferInvalidReason(_ offer: AdOffer, now: Int64) -> DiaryAds.WageOfferInvalidReason? {
+        guard case .wage(let wage) = offer else { return nil }
+        return DiaryAds.wageOfferInvalidReason(state, offer: wage, config: adConfig, now: now, calendar: calendar, balance: balance)
+    }
+
     public func offerStillAllowed(_ offer: AdOffer, now: Int64) -> Bool {
         if DiaryAds.quotaBlock(state, slot: offer.slot, config: adConfig, now: now) != nil { return false }
         if DiaryLedger.isClaimed(state, key: offer.key) { return false }
+        if !wageOfferStillValid(offer, now: now) { return false }
         return true
     }
 
@@ -376,6 +624,12 @@ public final class DiaryGameEngine {
         run(now: now) { events in
             guard DiaryLedger.pendingClaims(state).isEmpty else { return nil }
             guard !DiaryLedger.isClaimed(state, key: offer.key) else { return nil }
+            guard wageOfferStillValid(offer, now: now) else { return nil }
+            if case .material(let material) = offer, let orderID = material.orderID {
+                let orderExists = state.orders.active.contains(where: { $0.id == orderID })
+                    || state.orders.weekendOrder?.id == orderID
+                guard orderExists else { return nil }
+            }
             if let block = DiaryAds.quotaBlock(state, slot: offer.slot, config: adConfig, now: now),
                block != .interval {
                 return nil
@@ -407,6 +661,22 @@ public final class DiaryGameEngine {
 
     // MARK: - Internal pipeline
 
+    private func markPresence(now: Int64) {
+        state.home.lastVisitAt = now
+        state.home.awaySatiety = state.primaryCat.satiety
+        state.home.awayMood = state.primaryCat.mood
+    }
+
+    private func settleOuting(now: Int64, into events: inout [DiaryGameEvent]) {
+        let res = DiaryOuting.settleAway(&state, now: now, calendar: calendar, balance: balance)
+        if let departed = res.departed {
+            events.append(.catDeparted(spot: departed.spot, packedItem: departed.packedItem))
+        }
+        if let arrived = res.arrived {
+            events.append(.catReturned(arrived))
+        }
+    }
+
     private func emitReaction(cat: CatID, photos: [String], levelUps: [Int], into events: inout [DiaryGameEvent]) {
         for photo in photos { events.append(.photoTaken(cat: cat, photoID: photo)) }
         for level in levelUps {
@@ -424,9 +694,19 @@ public final class DiaryGameEngine {
             events.append(.dayStarted(state.dayKey))
         }
         DiaryWishEngine.ensureDailyWish(&state, balance: balance)
+        DiaryOrders.syncWeekendOrder(&state, balance: balance)
         DiaryEnergy.settle(&state, now: now, balance: balance)
+        if !atHome || (state.home.outing.map { now >= $0.returnAt } ?? false) {
+            settleOuting(now: now, into: &events)
+        }
+        if !atHome {
+            DiaryHome.captureAwaySnapshot(&state, balance: balance)
+        }
         DiaryHome.settleCats(&state, now: now, balance: balance)
         let value = action(&events)
+        if atHome {
+            markPresence(now: now)
+        }
         state.updatedAt = max(state.updatedAt, now)
         return EngineCommandOutput(value: value, events: events, didMutate: true)
     }

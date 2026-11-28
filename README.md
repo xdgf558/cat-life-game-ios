@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-当前源码准备 **2.0.0（70）**《养猫日记本》M1 原生改版候选版（PR 审查中，未上传 TestFlight）。改版前 `1.0（69）` 已打标签 `archive/ios-v1.0-build69`；新玩法独立写入 `cat-diary-save-v1.json`，不读取或覆盖旧版 `cat-life-native-v1.json`。此前的 TestFlight 版本为 **0.23.0（68）**。
+当前源码准备 **2.1.0（71）**《养猫日记本》M2 完整内容版（含 4 房间与自由布置、外出藏品、二猫雪球、主题与换色、珍藏相册、顾客故事、周末委托及明信片分享；PR 审查中，未上传 TestFlight）。改版前 `1.0（69）` 已打标签 `archive/ios-v1.0-build69`；新玩法独立写入 `cat-diary-save-v1.json`（完全兼容 M1 存档），不读取或覆盖旧版 `cat-life-native-v1.json`。此前的 TestFlight 版本为 **0.23.0（68）**。
 
 ## 获取资源与运行（唯一现行入口）
 
