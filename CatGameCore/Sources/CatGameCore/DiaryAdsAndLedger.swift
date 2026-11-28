@@ -262,8 +262,17 @@ public enum DiaryAds {
             return nil
         }
         if DiaryLedger.isClaimed(state, key: "material:target:\(target.id)") { return nil }
-        let activeOrder = target.orderID.flatMap { id in state.orders.active.first(where: { $0.id == id }) }
-        let gap = materialGap(state, target: target.item, order: activeOrder, reservedCells: reservedCells)
+        let liveOrder: CustomerOrder?
+        if let orderID = target.orderID {
+            guard let found = state.orders.active.first(where: { $0.id == orderID })
+                ?? (state.orders.weekendOrder?.id == orderID ? state.orders.weekendOrder : nil) else {
+                return nil
+            }
+            liveOrder = found
+        } else {
+            liveOrder = nil
+        }
+        let gap = materialGap(state, target: target.item, order: liveOrder, reservedCells: reservedCells)
         guard gap > 0 && gap <= config.materialMaxCount else { return nil }
         var energyCopy = state
         let energy = DiaryEnergy.settle(&energyCopy, now: now, balance: balance)

@@ -309,12 +309,29 @@ public enum DiaryOrders {
     }
 
     public static func syncWeekendOrder(_ state: inout DiaryGameState, balance: DiaryBalance = .default) {
+        let previousID = state.orders.weekendOrder?.id
         guard let week = DiaryStories.weekendWeek(for: state, balance: balance) else {
             state.orders.weekendOrder = nil
+            clearStaleWeekendTarget(&state, previousID: previousID)
             return
         }
-        if state.orders.weekendOrder?.id != "w\(week)" {
+        let nextID = "w\(week)"
+        if state.orders.weekendOrder?.id != nextID {
             state.orders.weekendOrder = DiaryStories.weekendOrder(for: state, week: week, balance: balance)
+            clearStaleWeekendTarget(&state, previousID: previousID)
+        } else {
+            clearStaleWeekendTarget(&state, previousID: nil)
+        }
+    }
+
+    private static func clearStaleWeekendTarget(_ state: inout DiaryGameState, previousID: String?) {
+        guard let targetOrderID = state.target?.orderID else { return }
+        if let previousID, targetOrderID == previousID, state.orders.weekendOrder?.id != previousID {
+            state.target = nil
+            return
+        }
+        if targetOrderID.hasPrefix("w"), state.orders.weekendOrder?.id != targetOrderID {
+            state.target = nil
         }
     }
 

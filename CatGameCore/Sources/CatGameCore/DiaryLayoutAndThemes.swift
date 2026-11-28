@@ -270,6 +270,7 @@ public enum DiaryThemes {
         id: RoomSkinID,
         now: Int64,
         quoted: Int? = nil,
+        committedPrice: Int? = nil,
         calendar: Calendar = .current,
         balance: DiaryBalance = .default
     ) -> RoomSkinActionResult {
@@ -277,9 +278,14 @@ public enum DiaryThemes {
         if !themesUnlocked(state, balance: balance) {
             return .themeLocked(themeUnlockLevel(balance: balance))
         }
-        let price = priceNow(skin: id, now: now, calendar: calendar, balance: balance)
-        if let quoted, quoted != price {
-            return .priceChanged(price)
+        let price: Int
+        if let committedPrice {
+            price = committedPrice
+        } else {
+            price = priceNow(skin: id, now: now, calendar: calendar, balance: balance)
+            if let quoted, quoted != price {
+                return .priceChanged(price)
+            }
         }
         guard state.coins >= price else { return .notEnoughCoins }
         state.coins -= price

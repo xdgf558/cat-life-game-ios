@@ -106,7 +106,7 @@ struct ShopSheetView: View {
         let basePrice = def.price ?? 0
         let price = store.currentFurniturePrice(def.id)
         let onSale = store.isFurnitureOnSale(def.id) && price < basePrice
-        let canAfford = store.state.coins >= price
+        let canAfford = store.availableCoinsForPurchase >= price
         let isWish = store.state.home.wishlist == def.id
 
         return VStack(spacing: 9) {
@@ -216,7 +216,7 @@ struct ShopSheetView: View {
                 } label: {
                     HStack(spacing: 4) {
                         AssetOrSymbol(asset: "ui_coin", symbol: "dollarsign.circle.fill", size: 14, tint: canAfford ? .white : RoomTheme.gold)
-                        Text(canAfford ? "\(price)" : GameStrings.format("shop.shortCoins", price - store.state.coins))
+                        Text(canAfford ? "\(price)" : GameStrings.format("shop.shortCoins", max(0, price - store.availableCoinsForPurchase)))
                             .font(.system(size: 12.5, weight: .heavy, design: .rounded))
                             .monospacedDigit()
                     }
@@ -249,7 +249,8 @@ struct ShopSheetView: View {
         let unlocked = DiaryThemes.themesUnlocked(store.state) || def.id == .defaultSkin
         let price = store.currentSkinPrice(def.id)
         let onSale = store.isSkinOnSale(def.id) && price < def.price
-        let canAfford = store.state.coins >= price
+        let purchaseStatus = store.skinPurchaseStatus(for: def.id)
+        let canAfford = store.availableCoinsForPurchase >= price
 
         return VStack(spacing: 10) {
             ZStack(alignment: .topTrailing) {
@@ -315,13 +316,30 @@ struct ShopSheetView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
                     .background(RoomTheme.track, in: Capsule())
+            } else if purchaseStatus == .saving {
+                Text(GameStrings.text("common.saving"))
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8.5)
+                    .background(RoomTheme.secondary, in: Capsule())
+            } else if purchaseStatus == .retrySave {
+                Button(GameStrings.text("save.retry")) {
+                    store.retrySaveNow()
+                }
+                .font(.system(size: 12, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8.5)
+                .background(RoomTheme.coral, in: Capsule())
+                .buttonStyle(CraftIconBadgeButtonStyle())
             } else {
                 Button {
                     store.buyRoomSkin(def.id, quoted: price)
                 } label: {
                     HStack(spacing: 4) {
                         AssetOrSymbol(asset: "ui_coin", symbol: "dollarsign.circle.fill", size: 14, tint: canAfford ? .white : RoomTheme.gold)
-                        Text(canAfford ? "\(price)" : GameStrings.format("shop.shortCoins", price - store.state.coins))
+                        Text(canAfford ? "\(price)" : GameStrings.format("shop.shortCoins", max(0, price - store.availableCoinsForPurchase)))
                             .font(.system(size: 12.5, weight: .heavy, design: .rounded))
                             .monospacedDigit()
                     }

@@ -446,7 +446,8 @@ public enum TutorialStep: String, Equatable, Sendable {
 }
 
 public struct DiaryGameState: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 1
+    public static let minimumSupportedSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     public var schemaVersion: Int
     public var createdAt: Int64
@@ -464,6 +465,87 @@ public struct DiaryGameState: Codable, Equatable, Sendable {
     public var diary: DiaryAlbumState
     public var ads: AdsState
     public var settings: GameSettings
+
+    public init(
+        schemaVersion: Int,
+        createdAt: Int64,
+        updatedAt: Int64,
+        dayKey: Int,
+        coins: Int,
+        tutorialActive: Bool,
+        energy: EnergyState,
+        board: BoardState,
+        target: CraftTarget?,
+        nextTargetID: Int,
+        orders: OrdersState,
+        cats: [CatID: DiaryCatState],
+        home: HomeState,
+        diary: DiaryAlbumState,
+        ads: AdsState,
+        settings: GameSettings
+    ) {
+        self.schemaVersion = schemaVersion
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.dayKey = dayKey
+        self.coins = coins
+        self.tutorialActive = tutorialActive
+        self.energy = energy
+        self.board = board
+        self.target = target
+        self.nextTargetID = nextTargetID
+        self.orders = orders
+        self.cats = cats
+        self.home = home
+        self.diary = diary
+        self.ads = ads
+        self.settings = settings
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion, createdAt, updatedAt, dayKey, coins, tutorialActive
+        case energy, board, target, nextTargetID, orders, cats, home, diary, ads, settings
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let rawVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        guard rawVersion >= Self.minimumSupportedSchemaVersion && rawVersion <= Self.currentSchemaVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: c,
+                debugDescription: "Unsupported schemaVersion \(rawVersion)"
+            )
+        }
+        if rawVersion >= 2 {
+            // v2 (M2+) saves must explicitly persist `storiesSeen` so a truncated/corrupt v2 save
+            // never re-runs the one-time M1 -> M2 story backpay migration.
+            let ordersContainer = try c.nestedContainer(keyedBy: OrdersState.CodingKeys.self, forKey: .orders)
+            guard ordersContainer.contains(.storiesSeen) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .orders,
+                    in: c,
+                    debugDescription: "Missing storiesSeen in schemaVersion \(rawVersion)"
+                )
+            }
+        }
+        schemaVersion = Self.currentSchemaVersion
+        createdAt = try c.decode(Int64.self, forKey: .createdAt)
+        updatedAt = try c.decode(Int64.self, forKey: .updatedAt)
+        dayKey = try c.decode(Int.self, forKey: .dayKey)
+        coins = try c.decode(Int.self, forKey: .coins)
+        tutorialActive = try c.decode(Bool.self, forKey: .tutorialActive)
+        energy = try c.decode(EnergyState.self, forKey: .energy)
+        board = try c.decode(BoardState.self, forKey: .board)
+        target = try c.decodeIfPresent(CraftTarget.self, forKey: .target)
+        nextTargetID = try c.decode(Int.self, forKey: .nextTargetID)
+        orders = try c.decode(OrdersState.self, forKey: .orders)
+        cats = try c.decode([CatID: DiaryCatState].self, forKey: .cats)
+        home = try c.decode(HomeState.self, forKey: .home)
+        diary = try c.decode(DiaryAlbumState.self, forKey: .diary)
+        ads = try c.decode(AdsState.self, forKey: .ads)
+        settings = try c.decode(GameSettings.self, forKey: .settings)
+    }
 
     public static func fresh(
         now: Int64,

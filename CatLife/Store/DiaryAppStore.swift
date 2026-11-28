@@ -63,12 +63,25 @@ struct PendingOrderDelivery: Equatable {
     let orderID: String
     var reservedCells: [Int]
     let isWeekend: Bool
+    let weekendOrder: CustomerOrder?
 
-    init(orderID: String, reservedCells: [Int], isWeekend: Bool = false) {
+    init(orderID: String, reservedCells: [Int], weekendOrder: CustomerOrder? = nil) {
         self.orderID = orderID
         self.reservedCells = reservedCells
-        self.isWeekend = isWeekend
+        self.isWeekend = weekendOrder != nil
+        self.weekendOrder = weekendOrder
     }
+}
+
+struct PendingSkinPurchase: Equatable {
+    let skinID: RoomSkinID
+    let quotedPrice: Int
+}
+
+enum PurchaseButtonStatus: Equatable {
+    case saving
+    case retrySave
+    case available
 }
 
 private struct PendingAdCompletion: Equatable {
@@ -112,6 +125,7 @@ final class DiaryAppStore {
     private(set) var luckyCells: Set<Int> = []
     private(set) var recentMergedCell: Int?
     private(set) var pendingOrderDeliveries: [PendingOrderDelivery] = []
+    private(set) var pendingSkinPurchases: [PendingSkinPurchase] = []
 
     // Debug / testing toggles (exposed in Settings)
     var mockAdsEnabled: Bool = true {
@@ -224,13 +238,36 @@ final class DiaryAppStore {
         pendingOrderDeliveries.contains { $0.orderID == orderID }
     }
 
+    var displayedWeekendOrder: CustomerOrder? {
+        state.orders.weekendOrder ?? pendingOrderDeliveries.first(where: { $0.isWeekend })?.weekendOrder
+    }
+
+    var reservedPurchaseCoins: Int {
+        pendingSkinPurchases.reduce(0) { $0 + $1.quotedPrice }
+    }
+
+    var availableCoinsForPurchase: Int {
+        max(0, state.coins - reservedPurchaseCoins)
+    }
+
+    func isSkinPurchasePending(_ id: RoomSkinID) -> Bool {
+        pendingSkinPurchases.contains { $0.skinID == id }
+    }
+
+    func skinPurchaseStatus(for id: RoomSkinID) -> PurchaseButtonStatus {
+        if isSkinPurchasePending(id) {
+            return isSaving ? .saving : .retrySave
+        }
+        return .available
+    }
+
     func isCellReserved(_ index: Int) -> Bool {
         reservedBoardCells.contains(index)
     }
 
     func canDeliverOrder(_ order: CustomerOrder) -> Bool {
         let isActive = state.orders.active.contains(where: { $0.id == order.id })
-            || state.orders.weekendOrder?.id == order.id
+            || displayedWeekendOrder?.id == order.id
         guard !isOrderDeliveryPending(order.id), isActive else {
             return false
         }
@@ -571,7 +608,7 @@ final class DiaryAppStore {
             }
             return
         }
-        if let weekend = state.orders.weekendOrder, weekend.id == orderID {
+        if let weekend = displayedWeekendOrder, weekend.id == orderID {
             deliverWeekendOrder()
             return
         }
@@ -579,22 +616,25 @@ final class DiaryAppStore {
               let cells = selectUnreservedCells(for: order.items, excluding: reservedBoardCells) else {
             return
         }
-        pendingOrderDeliveries.append(PendingOrderDelivery(orderID: orderID, reservedCells: cells, isWeekend: false))
+        pendingOrderDeliveries.append(PendingOrderDelivery(orderID: orderID, reservedCells: cells, weekendOrder: nil))
         scheduleSave(force: true, resetBackoff: true)
     }
 
     func deliverWeekendOrder() {
-        guard let order = state.orders.weekendOrder else { return }
-        if isOrderDeliveryPending(order.id) {
+        if pendingOrderDeliveries.contains(where: { $0.isWeekend }) {
             if !isSaving {
                 scheduleSave(force: true, resetBackoff: true)
             }
             return
         }
+        // Evaluate weekend eligibility at tap time so late Monday taps expire cleanly,
+        // while timely Sunday taps snapshot `order` and survive queued/retried writes across Monday 00:00.
+        _ = refreshDayIfNeeded()
+        guard let order = state.orders.weekendOrder else { return }
         guard let cells = selectUnreservedCells(for: order.items, excluding: reservedBoardCells) else {
             return
         }
-        pendingOrderDeliveries.append(PendingOrderDelivery(orderID: order.id, reservedCells: cells, isWeekend: true))
+        pendingOrderDeliveries.append(PendingOrderDelivery(orderID: order.id, reservedCells: cells, weekendOrder: order))
         scheduleSave(force: true, resetBackoff: true)
     }
 
@@ -827,6 +867,17 @@ final class DiaryAppStore {
     }
 
     func buyFurniture(_ id: FurnitureID, quoted: Int? = nil) {
+        let currentPrice = currentFurniturePrice(id)
+        if reservedPurchaseCoins > 0,
+           !state.home.furnitureOwned.contains(id),
+           DiaryThemes.furnitureLock(state, id: id, balance: engine.balance) == nil,
+           (quoted == nil || quoted == currentPrice),
+           availableCoinsForPurchase < currentPrice {
+            let wishOut = engine.setWishlist(id, now: nowMs)
+            syncStateAndApply(events: wishOut.events, save: true)
+            notices.show(GameStrings.format("shop.wishlistPinned", GameStrings.furnitureName(id)))
+            return
+        }
         let out = engine.buyFurniture(id: id, quoted: quoted, now: nowMs)
         switch out.value {
         case .bought(let furniture, _):
@@ -862,27 +913,33 @@ final class DiaryAppStore {
     }
 
     func buyRoomSkin(_ id: RoomSkinID, quoted: Int? = nil) {
-        let out = engine.buyRoomSkin(id: id, quoted: quoted, now: nowMs)
-        switch out.value {
-        case .applied(let skin, _):
-            syncStateAndApply(events: out.events, save: true)
-            audio.play(.purchase, userInitiated: true)
-            notices.show(GameStrings.format("shop.skinAppliedNotice", GameStrings.roomSkinName(skin)))
-        case .themeLocked(let lv):
-            syncStateAndApply(events: out.events, save: false)
-            notices.show(GameStrings.format("shop.themeLocked", lv))
-        case .priceChanged(let currentPrice):
-            syncStateAndApply(events: out.events, save: false)
-            notices.show(GameStrings.format("shop.priceChanged", currentPrice))
-        case .notEnoughCoins:
-            syncStateAndApply(events: out.events, save: false)
-            let price = currentSkinPrice(id)
-            notices.show(GameStrings.format("shop.shortCoins", max(0, price - state.coins)))
-        case .owned:
-            equipRoomSkin(id)
-        case .notOwned:
-            syncStateAndApply(events: out.events, save: false)
+        if isSkinPurchasePending(id) {
+            if !isSaving {
+                scheduleSave(force: true, resetBackoff: true)
+            }
+            return
         }
+        if state.home.skinsOwned.contains(id) {
+            equipRoomSkin(id)
+            return
+        }
+        _ = refreshDayIfNeeded()
+        if !DiaryThemes.themesUnlocked(state, balance: engine.balance) {
+            notices.show(GameStrings.format("shop.themeLocked", DiaryThemes.themeUnlockLevel(balance: engine.balance)))
+            return
+        }
+        let price = currentSkinPrice(id)
+        if let quoted, quoted != price {
+            notices.show(GameStrings.format("shop.priceChanged", price))
+            return
+        }
+        guard availableCoinsForPurchase >= price else {
+            notices.show(GameStrings.format("shop.shortCoins", max(0, price - availableCoinsForPurchase)))
+            return
+        }
+        // Persist skin purchase before mutating coins/activeSkin or showing success notice.
+        pendingSkinPurchases.append(PendingSkinPurchase(skinID: id, quotedPrice: price))
+        scheduleSave(force: true, resetBackoff: true)
     }
 
     func equipRoomSkin(_ id: RoomSkinID) {
@@ -1036,6 +1093,7 @@ final class DiaryAppStore {
         userDefaults.removeObject(forKey: seenDayMilestonesStorageKey(for: previousCreatedAt))
         stateGeneration &+= 1
         pendingOrderDeliveries.removeAll()
+        pendingSkinPurchases.removeAll()
         pendingAdCompletions.removeAll()
         expiredWishGuardGoal = nil
         let out = engine.resetProgress(now: nowMs)
@@ -1183,7 +1241,10 @@ final class DiaryAppStore {
         isSaving = true
         saveTask = Task { [weak self] in
             guard let self else { return }
-            while !self.pendingAdCompletions.isEmpty || !self.pendingOrderDeliveries.isEmpty || self.saveNeedsWrite {
+            while !self.pendingAdCompletions.isEmpty
+                || !self.pendingOrderDeliveries.isEmpty
+                || !self.pendingSkinPurchases.isEmpty
+                || self.saveNeedsWrite {
                 let generation = self.stateGeneration
                 let now = self.clock()
                 let saveNowMs = DayClock.epochMs(now)
@@ -1223,6 +1284,7 @@ final class DiaryAppStore {
                         if delivery.isWeekend {
                             let out = candidateEngine.deliverWeekendOrder(
                                 expectedID: delivery.orderID,
+                                fallbackOrder: delivery.weekendOrder,
                                 preferredCells: delivery.reservedCells,
                                 now: saveNowMs
                             )
@@ -1271,6 +1333,54 @@ final class DiaryAppStore {
                                 )
                             } else {
                                 self.pendingOrderDeliveries.removeAll { $0.orderID == delivery.orderID }
+                                try await self.repository.save(self.state, now: now)
+                            }
+                        }
+                    } else if let skinPurchase = self.pendingSkinPurchases.first {
+                        let hadPendingWrite = self.saveNeedsWrite
+                        self.saveNeedsWrite = false
+                        let baseState = self.state
+                        let candidateEngine = self.engine.cloned()
+                        let out = candidateEngine.buyRoomSkin(
+                            id: skinPurchase.skinID,
+                            quoted: skinPurchase.quotedPrice,
+                            now: saveNowMs
+                        )
+                        switch out.value {
+                        case .applied(let skin, let price):
+                            try await self.repository.save(candidateEngine.state, now: now)
+                            guard self.stateGeneration == generation else { continue }
+                            self.pendingSkinPurchases.removeAll { $0.skinID == skinPurchase.skinID }
+                            self.commitSavedSkinPurchase(
+                                skin: skin,
+                                price: price,
+                                baseState: baseState,
+                                candidateEngine: candidateEngine,
+                                commitEvents: out.events,
+                                saveNowMs: saveNowMs
+                            )
+                        case .priceChanged(let currentPrice):
+                            self.pendingSkinPurchases.removeAll { $0.skinID == skinPurchase.skinID }
+                            self.notices.show(GameStrings.format("shop.priceChanged", currentPrice))
+                            if hadPendingWrite {
+                                try await self.repository.save(self.state, now: now)
+                            }
+                        case .notEnoughCoins:
+                            self.pendingSkinPurchases.removeAll { $0.skinID == skinPurchase.skinID }
+                            let currentPrice = self.currentSkinPrice(skinPurchase.skinID)
+                            self.notices.show(GameStrings.format("shop.shortCoins", max(0, currentPrice - self.availableCoinsForPurchase)))
+                            if hadPendingWrite {
+                                try await self.repository.save(self.state, now: now)
+                            }
+                        case .themeLocked(let lv):
+                            self.pendingSkinPurchases.removeAll { $0.skinID == skinPurchase.skinID }
+                            self.notices.show(GameStrings.format("shop.themeLocked", lv))
+                            if hadPendingWrite {
+                                try await self.repository.save(self.state, now: now)
+                            }
+                        case .owned, .notOwned:
+                            self.pendingSkinPurchases.removeAll { $0.skinID == skinPurchase.skinID }
+                            if hadPendingWrite {
                                 try await self.repository.save(self.state, now: now)
                             }
                         }
@@ -1382,6 +1492,40 @@ final class DiaryAppStore {
         if let finalGift {
             self.notices.show(GameStrings.format("order.customerGift", GameStrings.furnitureName(finalGift)))
         }
+    }
+
+    private func commitSavedSkinPurchase(
+        skin: RoomSkinID,
+        price: Int,
+        baseState: DiaryGameState,
+        candidateEngine: DiaryGameEngine,
+        commitEvents: [DiaryGameEvent],
+        saveNowMs: Int64
+    ) {
+        let commitNowMs = max(saveNowMs, max(self.state.updatedAt, self.nowMs))
+        if self.state == baseState {
+            let currentAdConfig = self.engine.adConfig
+            self.engine = candidateEngine
+            self.engine.adConfig = currentAdConfig
+            let dayOut = self.engine.refreshDay(now: commitNowMs)
+            if dayOut.didMutate {
+                self.syncStateAndApply(events: commitEvents + dayOut.events, save: false)
+                self.saveNeedsWrite = true
+            } else {
+                self.syncStateAndApply(events: commitEvents, save: false)
+            }
+        } else {
+            let liveOut = self.engine.buyRoomSkin(
+                id: skin,
+                committedPrice: price,
+                now: commitNowMs
+            )
+            guard case .applied = liveOut.value else { return }
+            self.syncStateAndApply(events: liveOut.events, save: false)
+            self.saveNeedsWrite = true
+        }
+        self.audio.play(.purchase, userInitiated: true)
+        self.notices.show(GameStrings.format("shop.skinAppliedNotice", GameStrings.roomSkinName(skin)))
     }
 
     private func commitSavedOrderDelivery(

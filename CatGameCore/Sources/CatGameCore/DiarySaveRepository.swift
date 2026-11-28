@@ -83,7 +83,7 @@ public actor DiarySaveRepository {
         let data = try Data(contentsOf: backupURL)
         var state = try decode(data)
         DiaryLedger.recoverPendingOnStartup(&state)
-        try data.write(to: saveURL, options: .atomic)
+        try encode(state).write(to: saveURL, options: .atomic)
         lastLoadDisposition = .recoveredBackup
         return state
     }

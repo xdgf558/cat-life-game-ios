@@ -187,7 +187,7 @@ struct WorkshopView: View {
 
     @ViewBuilder
     private var pinnedOrdersRow: some View {
-        if let weekend = store.state.orders.weekendOrder {
+        if let weekend = store.displayedWeekendOrder {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 7) {
                     orderCardView(weekend, isWeekend: true)

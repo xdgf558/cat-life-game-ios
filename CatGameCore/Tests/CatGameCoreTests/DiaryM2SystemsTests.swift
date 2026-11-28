@@ -38,9 +38,10 @@ final class DiaryM2SystemsTests: XCTestCase {
         state.coins = 50
         state.orders.customerProgress[.ajian] = 35 // qualifies for 10, 20, 35 (backpay 150)
 
-        // Strip M2-only keys from JSON to simulate a real M1 (2.0.0 build 70) save file.
+        // Strip M2-only keys and set schemaVersion = 1 to simulate a real M1 (2.0.0 build 70) save file.
         let encoded = try JSONEncoder().encode(state)
         var root = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        root["schemaVersion"] = 1
         var home = try XCTUnwrap(root["home"] as? [String: Any])
         for key in ["stray", "skinsOwned", "activeSkin", "basket", "outing", "pendingArrival",
                     "treasures", "outingsToday", "outingsDay", "recallUsedToday", "awaySatiety", "awayMood"] {
@@ -62,6 +63,8 @@ final class DiaryM2SystemsTests: XCTestCase {
 
         let loaded = try await repo.loadOrCreate(now: DayClock.date(fromEpochMs: t0), calendar: utcCal)
         XCTAssertTrue(loaded.isValid)
+        XCTAssertEqual(loaded.schemaVersion, DiaryGameState.currentSchemaVersion)
+        XCTAssertEqual(loaded.schemaVersion, 2, "M2 must persist an independent schemaVersion so 2.0.0 refuses to overwrite it")
         XCTAssertEqual(loaded.home.activeSkin, .defaultSkin)
         XCTAssertEqual(loaded.home.skinsOwned, [.defaultSkin])
         XCTAssertEqual(loaded.orders.storiesSeen, ["ajian:10", "ajian:20", "ajian:35"])
@@ -74,6 +77,40 @@ final class DiaryM2SystemsTests: XCTestCase {
         XCTAssertEqual(engine.state.orders.storyBackpay, 0)
         // Second call is idempotent (0).
         XCTAssertEqual(engine.takeStoryBackpay(now: t0).value, 0)
+
+        // Saving upgraded state writes schemaVersion == 2 and preserves M2 progress without paying backpay again.
+        var m2State = engine.state
+        m2State.coins = 650
+        m2State.home.skinsOwned = [.defaultSkin, .honey]
+        m2State.home.activeSkin = .honey
+        m2State.home.treasures[.ginkgo] = TreasureRecord(count: 2, firstAt: t0, lastAt: t0)
+        try await repo.save(m2State, now: DayClock.date(fromEpochMs: t0 + 600_000))
+
+        let savedRaw = try Data(contentsOf: repo.saveURL)
+        let savedJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: savedRaw) as? [String: Any])
+        XCTAssertEqual(savedJSON["schemaVersion"] as? Int, 2)
+
+        // A 2.0.0 build only supports schemaVersion == 1, so `2 > 1` triggers unsupportedSchemaVersion without overwriting.
+        let reloadedM2 = try await repo.loadOrCreate(now: DayClock.date(fromEpochMs: t0 + 700_000), calendar: utcCal)
+        XCTAssertEqual(reloadedM2.coins, 650)
+        XCTAssertEqual(reloadedM2.orders.storyBackpay, 0)
+        XCTAssertEqual(reloadedM2.home.activeSkin, .honey)
+        XCTAssertEqual(DiaryOuting.treasureTimes(reloadedM2, id: .ginkgo), 2)
+
+        // Corrupt v2 save missing `storiesSeen` must fail decoding and recover backup instead of repaying backpay!
+        try await repo.save(reloadedM2, now: DayClock.date(fromEpochMs: t0 + 1_200_000))
+        var corruptV2 = savedJSON
+        var corruptOrders = try XCTUnwrap(corruptV2["orders"] as? [String: Any])
+        corruptOrders.removeValue(forKey: "storiesSeen")
+        corruptV2["orders"] = corruptOrders
+        try JSONSerialization.data(withJSONObject: corruptV2).write(to: repo.saveURL, options: .atomic)
+
+        let recovered = try await repo.loadOrCreate(now: DayClock.date(fromEpochMs: t0 + 1_300_000), calendar: utcCal)
+        let disp = await repo.lastLoadDisposition
+        XCTAssertEqual(disp, .recoveredBackup)
+        XCTAssertEqual(recovered.coins, 650)
+        XCTAssertEqual(recovered.orders.storyBackpay, 0)
+        XCTAssertEqual(recovered.home.activeSkin, .honey)
     }
 
     func testLayoutPlacementBoundsFlipStoreAndReset() {
@@ -347,5 +384,95 @@ final class DiaryM2SystemsTests: XCTestCase {
         var s4 = DiaryGameState.fresh(now: t0, calendar: utcCal)
         s4.home.stray = StrayState(trust: 99, lastSeenAt: nil, present: true, ate: nil)
         XCTAssertFalse(s4.isValid, "Out-of-range stray trust must be rejected")
+    }
+
+    func testExpiredWeekendOrderClearsTargetAndBlocksMaterialAd() throws {
+        // 2026-11-29 23:59:30 UTC (Sunday) -> +60s = 2026-11-30 00:00:30 UTC (Monday, < 1 energy tick).
+        let sun = makeUTCDate(year: 2026, month: 11, day: 29, hour: 23, minute: 59) + 30_000
+        let mon = sun + 60_000
+
+        var state = DiaryGameState.fresh(now: sun, calendar: utcCal)
+        state.tutorialActive = false
+        state.primaryCat.level = 7
+        state.orders.completedTotal = 5
+        state.energy.current = 0
+        state.energy.updatedAt = sun
+        // Fill regular active orders with items from another chain so auto-target won't mask the expired weekend order.
+        DiaryOrders.syncWeekendOrder(&state)
+        let weekend = try XCTUnwrap(state.orders.weekendOrder)
+        let targetItem = try XCTUnwrap(weekend.items.first)
+        let otherChain: MergeChain = targetItem.chain == .cloth ? .wood : .cloth
+        state.orders.active = [
+            CustomerOrder(id: "o1", customer: .ajian, items: [MergeItem(chain: otherChain, level: 4)], wage: 20)
+        ]
+        // Leave exactly 1 base unit short of `targetItem` so Sunday material ad offers count == 1.
+        let unitsNeeded = targetItem.energyValue - 1
+        var remaining = unitsNeeded
+        var cellIdx = 0
+        for lvl in stride(from: targetItem.level - 1, through: 1, by: -1) {
+            let unitVal = MergeItem(chain: targetItem.chain, level: lvl).energyValue
+            while remaining >= unitVal {
+                state.board.cells[cellIdx] = MergeItem(chain: targetItem.chain, level: lvl)
+                cellIdx += 1
+                remaining -= unitVal
+            }
+        }
+        DiaryOrders.setTarget(&state, item: targetItem, orderID: weekend.id)
+
+        var adCfg = AdRemoteConfig.default
+        adCfg.adEnabled = true
+        let sundayOffer = DiaryAds.materialOffer(state, config: adCfg, now: sun)
+        XCTAssertEqual(sundayOffer?.orderID, weekend.id)
+        XCTAssertEqual(sundayOffer?.count, 1)
+
+        // Monday arrives -> syncWeekendOrder clears weekendOrder AND clears the associated target!
+        let engine = DiaryGameEngine(state: state, adConfig: adCfg, calendar: utcCal)
+        _ = engine.refreshDay(now: mon)
+        XCTAssertNil(engine.state.orders.weekendOrder)
+        XCTAssertNil(engine.state.target, "Expiring weekend order must clear its craft target")
+        XCTAssertNil(engine.materialOfferFor(chain: targetItem.chain, now: mon).value)
+
+        // Defense-in-depth: even with a stale target pointing to an expired weekend order, materialOffer and startAd must reject it!
+        var staleState = engine.state
+        staleState.energy.current = 0
+        staleState.energy.updatedAt = mon
+        DiaryOrders.setTarget(&staleState, item: targetItem, orderID: weekend.id)
+        XCTAssertNil(DiaryAds.materialOffer(staleState, config: adCfg, now: mon))
+
+        if let sundayOffer {
+            let staleEngine = DiaryGameEngine(state: staleState, adConfig: adCfg, calendar: utcCal)
+            XCTAssertNil(staleEngine.startAd(offer: .material(sundayOffer), now: mon).value)
+        }
+    }
+
+    func testRepeatTreasureArrivalReportsActualClampedMoodGain() {
+        let departAt = makeUTCDate(year: 2026, month: 11, day: 28, hour: 10)
+        let returnAt = makeUTCDate(year: 2026, month: 11, day: 28, hour: 12)
+        let outing = OutingState(departAt: departAt, returnAt: returnAt, packedItem: nil, spot: .garden)
+
+        func runArrival(initialMood: Double) -> (arrival: OutingArrival, finalMood: Double) {
+            var state = DiaryGameState.fresh(now: departAt, calendar: utcCal)
+            state.tutorialActive = false
+            state.primaryCat.level = 6
+            state.primaryCat.mood = initialMood
+            // Pre-own every treasure so whichever treasure is rolled is guaranteed to be a repeat treasure.
+            for id in TreasureID.allCases {
+                state.home.treasures[id] = TreasureRecord(count: 1, firstAt: departAt - DayClock.dayMs, lastAt: nil)
+            }
+            let arrival = DiaryOuting.arrive(&state, outing: outing, calendar: utcCal)
+            return (arrival, state.primaryCat.mood)
+        }
+
+        let nearCap = runArrival(initialMood: 99.0)
+        XCTAssertEqual(nearCap.finalMood, 100.0, accuracy: 0.0001)
+        XCTAssertEqual(nearCap.arrival.bonusMood, 1.0, accuracy: 0.0001)
+
+        let atCap = runArrival(initialMood: 100.0)
+        XCTAssertEqual(atCap.finalMood, 100.0, accuracy: 0.0001)
+        XCTAssertEqual(atCap.arrival.bonusMood, 0.0, accuracy: 0.0001)
+
+        let normal = runArrival(initialMood: 80.0)
+        XCTAssertEqual(normal.finalMood, 85.0, accuracy: 0.0001)
+        XCTAssertEqual(normal.arrival.bonusMood, 5.0, accuracy: 0.0001)
     }
 }

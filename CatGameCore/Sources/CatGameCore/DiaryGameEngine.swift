@@ -236,9 +236,22 @@ public final class DiaryGameEngine {
         }
     }
 
-    public func buyRoomSkin(id: RoomSkinID, quoted: Int? = nil, now: Int64) -> EngineCommandOutput<RoomSkinActionResult> {
+    public func buyRoomSkin(
+        id: RoomSkinID,
+        quoted: Int? = nil,
+        committedPrice: Int? = nil,
+        now: Int64
+    ) -> EngineCommandOutput<RoomSkinActionResult> {
         run(now: now) { events in
-            let result = DiaryThemes.buyRoomSkin(&state, id: id, now: now, quoted: quoted, calendar: calendar, balance: balance)
+            let result = DiaryThemes.buyRoomSkin(
+                &state,
+                id: id,
+                now: now,
+                quoted: quoted,
+                committedPrice: committedPrice,
+                calendar: calendar,
+                balance: balance
+            )
             if case .applied(let skin, let price) = result {
                 events.append(.roomSkinApplied(skin: skin, price: price))
             }
@@ -597,6 +610,11 @@ public final class DiaryGameEngine {
             guard DiaryLedger.pendingClaims(state).isEmpty else { return nil }
             guard !DiaryLedger.isClaimed(state, key: offer.key) else { return nil }
             guard wageOfferStillValid(offer, now: now) else { return nil }
+            if case .material(let material) = offer, let orderID = material.orderID {
+                let orderExists = state.orders.active.contains(where: { $0.id == orderID })
+                    || state.orders.weekendOrder?.id == orderID
+                guard orderExists else { return nil }
+            }
             if let block = DiaryAds.quotaBlock(state, slot: offer.slot, config: adConfig, now: now),
                block != .interval {
                 return nil

@@ -151,8 +151,10 @@ public enum DiaryOuting {
         let bonusCoins = treasure == .coin ? cfg.coinTreasureBonus : 0
         state.coins += bonusCoins
         var cat = state.primaryCat
-        let bonusMood = isNew ? 0.0 : cfg.repeatMoodBonus
-        cat.mood = min(100.0, cat.mood + bonusMood)
+        let beforeMood = cat.mood
+        let intendedBonus = isNew ? 0.0 : cfg.repeatMoodBonus
+        cat.mood = min(100.0, cat.mood + intendedBonus)
+        let bonusMood = max(0.0, cat.mood - beforeMood)
         state.primaryCat = cat
 
         var bonusPhoto: String? = nil

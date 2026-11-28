@@ -196,9 +196,10 @@ struct OutingArrivalOverlayView: View {
                         .foregroundStyle(RoomTheme.secondary)
                         .multilineTextAlignment(.center)
 
+                    let displayedMood = Int(arrival.bonusMood.rounded())
                     let extras: [String] = [
                         arrival.packedItem.map { GameStrings.format("outing.arrivalPacked", GameStrings.itemName($0)) },
-                        arrival.bonusMood > 0 ? GameStrings.format("outing.arrivalMood", Int(arrival.bonusMood.rounded())) : nil,
+                        displayedMood > 0 ? GameStrings.format("outing.arrivalMood", displayedMood) : nil,
                         arrival.bonusCoins > 0 ? GameStrings.format("outing.arrivalCoins", arrival.bonusCoins) : nil,
                     ].compactMap { $0 }
                     if !extras.isEmpty {
