@@ -359,6 +359,7 @@ extension GameStrings {
         // MARK: - M2 Strings (Rooms, Decorate, Themes, Outing, Xueqiu, Album, Stories, Postcards)
         "release.71.title": "2.1.0 完整内容版（M2）",
         "release.71.body": "开放门口与阳台 4 房间与自由布置、小橘外出与 18 件藏品、二猫雪球收养与双猫照、冬春主题家具与夜间特价、36 张珍藏相册、顾客故事、周末委托及拍立得明信片分享。",
+        "cover.subtitle": "和小橘的每一天",
         "cover.enterNew": "开始写日记",
         "cover.enterDay": "翻开日记 · 第 %d 天",
         "cover.loading": "正在翻开日记… %d%%",
@@ -385,6 +386,7 @@ extension GameStrings {
         "settings.save.ok": "存档正常",
         "settings.save.pending": "有改动未保存",
         "settings.save.lastSaved": "最近保存：%@",
+        "settings.save.notYet": "尚未保存",
         "home.switchCatHint": "点一下切换小橘和雪球",
         "home.toyUses": "×%d",
         "release.72.title": "2.2.0 界面焕新",

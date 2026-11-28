@@ -193,7 +193,7 @@ struct HomeView: View {
 
                     Spacer()
 
-                    if !isTutorial && (store.unlockedRooms.count > 1 || !store.state.home.furnitureOwned.isEmpty) && !store.isDecorating {
+                    if !isTutorial && (store.unlockedRooms.count > 1 || (!store.isDecorating && !store.state.home.furnitureOwned.isEmpty)) {
                         roomRow
                     }
 
@@ -949,30 +949,38 @@ struct HomeView: View {
 
     /// Room tabs plus the decorate entry: both act on the room you're looking at.
     /// Falls back to an icon-only decorate button, then a scrolling tab strip on narrow / large-text layouts.
+    @ViewBuilder
     private var roomRow: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) {
-                if store.unlockedRooms.count > 1 { roomSegmentedPill }
-                Spacer(minLength: 8)
-                decorateButton(showLabel: true)
+        if store.isDecorating {
+            ViewThatFits(in: .horizontal) {
+                roomSegmentedPill
+                ScrollView(.horizontal, showsIndicators: false) { roomSegmentedPill }
             }
-            HStack(spacing: 8) {
-                if store.unlockedRooms.count > 1 { roomSegmentedPill }
-                Spacer(minLength: 6)
-                decorateButton(showLabel: false)
-            }
-            HStack(spacing: 8) {
-                if store.unlockedRooms.count > 1 {
-                    ScrollView(.horizontal, showsIndicators: false) { roomSegmentedPill }
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    if store.unlockedRooms.count > 1 { roomSegmentedPill }
+                    Spacer(minLength: 8)
+                    decorateButton(showLabel: true)
                 }
-                decorateButton(showLabel: false)
+                HStack(spacing: 8) {
+                    if store.unlockedRooms.count > 1 { roomSegmentedPill }
+                    Spacer(minLength: 6)
+                    decorateButton(showLabel: false)
+                }
+                HStack(spacing: 8) {
+                    if store.unlockedRooms.count > 1 {
+                        ScrollView(.horizontal, showsIndicators: false) { roomSegmentedPill }
+                    }
+                    decorateButton(showLabel: false)
+                }
             }
         }
     }
 
     @ViewBuilder
     private func decorateButton(showLabel: Bool) -> some View {
-        if !store.state.home.furnitureOwned.isEmpty {
+        if !store.isDecorating && !store.state.home.furnitureOwned.isEmpty {
             Button {
                 store.enterDecorateMode()
             } label: {
@@ -1010,6 +1018,8 @@ struct HomeView: View {
                     HStack(spacing: 4) {
                         Text(GameStrings.roomName(room))
                             .font(.system(size: 12.5, weight: .heavy, design: .rounded))
+                            .lineLimit(1)
+                            .fixedSize()
                         if hasStrayDot {
                             Circle()
                                 .fill(selected ? Color.white : RoomTheme.coral)

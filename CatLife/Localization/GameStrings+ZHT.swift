@@ -341,6 +341,7 @@ extension GameStrings {
 
         "release.71.title": "2.1.0 完整內容版（M2）",
         "release.71.body": "開放門口與陽台 4 房間與自由佈置、小橘外出與 18 件藏品、二貓雪球收養與雙貓照、冬春主題家具與夜間特價、36 張珍藏相冊、顧客故事、週末委託及拍立得明信片分享。",
+        "cover.subtitle": "和小橘的每一天",
         "cover.enterNew": "開始寫日記",
         "cover.enterDay": "翻開日記 · 第 %d 天",
         "cover.loading": "正在翻開日記… %d%%",
@@ -367,6 +368,7 @@ extension GameStrings {
         "settings.save.ok": "存檔正常",
         "settings.save.pending": "有變更未儲存",
         "settings.save.lastSaved": "最近儲存：%@",
+        "settings.save.notYet": "尚未儲存",
         "home.switchCatHint": "點一下切換小橘和雪球",
         "home.toyUses": "×%d",
         "release.72.title": "2.2.0 介面煥新",

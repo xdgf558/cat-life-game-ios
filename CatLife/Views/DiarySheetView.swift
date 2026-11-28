@@ -185,6 +185,7 @@ struct DiarySheetView: View {
                     .opacity(0.85)
             }
             .foregroundStyle(active ? .white : RoomTheme.ink)
+            .padding(.horizontal, 4)
             .frame(maxWidth: .infinity, minHeight: 44)
             .background {
                 if active {

@@ -167,6 +167,15 @@ final class GameAudioController: NSObject {
         }
     }
 
+    /// Soft tap haptic for entry controls (e.g. cover button) that still honors the player's haptics toggle.
+    func playSoftTapHaptic() {
+        guard isForeground, !adPaused, settings.haptics else { return }
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        #if DEBUG
+        hapticPlayCount += 1
+        #endif
+    }
+
     private func minimumGap(for effect: GameSoundEffect) -> TimeInterval {
         effect.isCatVoice ? 2.0 : (effect == .merge ? 0.06 : 0.1)
     }

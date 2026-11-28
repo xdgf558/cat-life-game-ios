@@ -341,6 +341,7 @@ extension GameStrings {
 
         "release.71.title": "2.1.0 Full Content Update (M2)",
         "release.71.body": "Adds 4 rooms & free decorating, cat outings with 18 treasures, adopting Snowball + duo photos, Winter/Spring themes & nightly flash sales, 36-photo Treasure Album, customer stories, weekend commissions, and Polaroid postcard sharing.",
+        "cover.subtitle": "Every Day with Marmalade",
         "cover.enterNew": "Start the Diary",
         "cover.enterDay": "Open the Diary · Day %d",
         "cover.loading": "Opening the diary… %d%%",
@@ -367,6 +368,7 @@ extension GameStrings {
         "settings.save.ok": "Save is healthy",
         "settings.save.pending": "Unsaved changes",
         "settings.save.lastSaved": "Last saved: %@",
+        "settings.save.notYet": "Not saved yet",
         "home.switchCatHint": "Tap to switch between Marmalade and Snowball",
         "home.toyUses": "×%d",
         "release.72.title": "2.2.0 Fresh New Look",

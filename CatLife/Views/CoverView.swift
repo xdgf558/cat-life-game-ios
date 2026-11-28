@@ -23,48 +23,54 @@ struct CoverView: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            let safeTop = geo.safeAreaInsets.top
-            let safeBottom = geo.safeAreaInsets.bottom
-            let size = CGSize(width: geo.size.width, height: geo.size.height + safeTop + safeBottom)
-            let titleW = min(size.width - 56, 340)
-            let titleH = titleW * 0.4
-            let titleTop = safeTop + 18
-            let buttonBottom = size.height - safeBottom - 96
-            let bg = backgroundRect(in: size, focusTop: titleTop + titleH - 16, focusBottom: buttonBottom - 64)
+        ZStack {
+            GeometryReader { geo in
+                let safeTop = geo.safeAreaInsets.top
+                let safeBottom = geo.safeAreaInsets.bottom
+                let fullSize = CGSize(width: geo.size.width, height: geo.size.height + safeTop + safeBottom)
+                let titleW = min(fullSize.width - 56, 340)
+                let titleH = titleW * 0.4
+                let focusTop = safeTop + 12 + titleH - 16
+                let focusBottom = fullSize.height - safeBottom - 160
+                let bg = backgroundRect(in: fullSize, focusTop: focusTop, focusBottom: focusBottom)
 
-            ZStack(alignment: .topLeading) {
-                RoomTheme.cream
+                ZStack(alignment: .topLeading) {
+                    RoomTheme.cream
 
-                Image("cover_bg")
-                    .resizable()
-                    .frame(width: bg.width, height: bg.height)
-                    .position(x: bg.midX, y: bg.midY)
-                    .accessibilityHidden(true)
+                    Image("cover_bg")
+                        .resizable()
+                        .frame(width: bg.width, height: bg.height)
+                        .position(x: bg.midX, y: bg.midY)
+                        .accessibilityHidden(true)
 
-                // Cream wash under the button and footer so text stays legible over the table.
-                LinearGradient(
-                    stops: [
-                        .init(color: RoomTheme.cream.opacity(0), location: 0),
-                        .init(color: RoomTheme.cream.opacity(0.78), location: 0.4),
-                        .init(color: RoomTheme.cream.opacity(0.95), location: 1)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(width: size.width, height: size.height - (buttonBottom - 90))
-                .position(x: size.width / 2, y: (buttonBottom - 90 + size.height) / 2)
-                .allowsHitTesting(false)
+                    // Cream wash under the button and footer so text stays legible over the table.
+                    VStack(spacing: 0) {
+                        Spacer()
+                        LinearGradient(
+                            stops: [
+                                .init(color: RoomTheme.cream.opacity(0), location: 0),
+                                .init(color: RoomTheme.cream.opacity(0.78), location: 0.42),
+                                .init(color: RoomTheme.cream.opacity(0.95), location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: max(200, safeBottom + 205))
+                    }
+                    .frame(width: fullSize.width, height: fullSize.height)
+                    .allowsHitTesting(false)
+                }
+                .ignoresSafeArea()
+            }
 
-                Image("cover_title")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: titleW, height: titleH)
-                    .position(x: size.width / 2, y: titleTop + titleH / 2)
-                    .accessibilityLabel(GameStrings.text("app.title"))
-                    .accessibilityAddTraits(.isHeader)
+            VStack(spacing: 0) {
+                coverTitleHeader
+                    .padding(.top, 12)
+                    .padding(.horizontal, 28)
 
-                VStack(spacing: 14) {
+                Spacer(minLength: 16)
+
+                VStack(spacing: 8) {
                     if let error = store.loadError {
                         loadErrorCard(error)
                     } else {
@@ -87,11 +93,12 @@ struct CoverView: View {
                     Text(AppVersion.current.localizedDisplay)
                         .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                         .foregroundStyle(RoomTheme.secondary)
+                        .accessibilityIdentifier("coverVersionText")
                 }
-                .frame(width: min(size.width - 56, 320))
-                .position(x: size.width / 2, y: buttonBottom + 26)
+                .frame(maxWidth: 320)
+                .padding(.horizontal, 28)
+                .padding(.bottom, 10)
             }
-            .ignoresSafeArea()
         }
         .sheet(isPresented: $showingPrivacy) {
             NavigationStack {
@@ -106,13 +113,15 @@ struct CoverView: View {
             }
             .presentationDetents([.medium, .large])
         }
-        .task {
+        .task(id: store.loadError == nil) {
             // Ease the bar toward 90% while the save loads; the real "done" jumps it to 100%.
-            while !Task.isCancelled && !store.isLoaded {
+            while !Task.isCancelled && !store.isLoaded && store.loadError == nil {
                 try? await Task.sleep(for: .milliseconds(60))
                 shownProgress = min(0.9, shownProgress + (0.9 - shownProgress) * 0.08)
             }
-            withAnimation(.easeOut(duration: 0.25)) { shownProgress = 1 }
+            if store.isLoaded {
+                withAnimation(.easeOut(duration: 0.25)) { shownProgress = 1 }
+            }
         }
         .onAppear {
             guard !reduceMotion else { return }
@@ -125,10 +134,58 @@ struct CoverView: View {
     // MARK: - Pieces
 
     @ViewBuilder
+    private var coverTitleHeader: some View {
+        if GameLocalization.shared.language == .simplifiedChinese {
+            Image("cover_title")
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 340)
+                .aspectRatio(1000.0 / 400.0, contentMode: .fit)
+                .accessibilityLabel(GameStrings.text("app.title"))
+                .accessibilityAddTraits(.isHeader)
+        } else {
+            // `cover_title` embeds Simplified Chinese lettering; render a localized storybook lockup for ZHT and EN.
+            VStack(spacing: 8) {
+                Text(GameStrings.text("app.title"))
+                    .font(.system(size: GameLocalization.shared.language == .english ? 38 : 40, weight: .black, design: .rounded))
+                    .foregroundStyle(RoomTheme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .shadow(color: RoomTheme.paper.opacity(0.95), radius: 0, x: 0, y: 2)
+                    .shadow(color: RoomTheme.paper.opacity(0.9), radius: 6, y: 1)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "pawprint.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(RoomTheme.coral)
+                    Text(GameStrings.text("cover.subtitle"))
+                        .font(.system(size: 14.5, weight: .heavy, design: .rounded))
+                        .foregroundStyle(RoomTheme.coralDeep)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Image(systemName: "pawprint.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(RoomTheme.coral)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(RoomTheme.paper.opacity(0.88), in: Capsule())
+                .overlay(Capsule().stroke(RoomTheme.wood.opacity(0.65), lineWidth: 1))
+                .shadow(color: RoomTheme.ink.opacity(0.10), radius: 6, y: 2)
+            }
+            .padding(.top, 10)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(GameStrings.text("app.title") + " · " + GameStrings.text("cover.subtitle"))
+            .accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    @ViewBuilder
     private var enterButton: some View {
         if store.isLoaded {
             Button {
-                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                guard !store.hasEntered else { return }
+                store.audio.playSoftTapHaptic()
                 onEnter()
             } label: {
                 HStack(spacing: 10) {
@@ -175,7 +232,8 @@ struct CoverView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             Button(GameStrings.text("cover.retry")) {
-                Task { await store.bootstrap() }
+                shownProgress = 0.08
+                Task { await store.bootstrap(enterImmediately: false) }
             }
             .font(.system(size: 16, weight: .heavy, design: .rounded))
             .frame(maxWidth: .infinity)

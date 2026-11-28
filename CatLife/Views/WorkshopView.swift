@@ -362,6 +362,12 @@ struct WorkshopView: View {
             .shadow(color: RoomTheme.ink.opacity(0.12), radius: 3, y: 2)
         }
         .buttonStyle(CraftIconBadgeButtonStyle())
+        .accessibilityLabel(
+            GameStrings.text("weekend.badge") + " · "
+                + GameStrings.customerName(order.customer) + " · "
+                + order.items.map { GameStrings.itemName($0) }.joined(separator: "、")
+                + " · " + GameStrings.format("common.coinsFormat", order.wage)
+        )
         .accessibilityIdentifier("weekendOrderStrip")
     }
 

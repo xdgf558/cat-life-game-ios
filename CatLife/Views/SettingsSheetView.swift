@@ -222,10 +222,22 @@ struct SettingsSheetView: View {
                                 .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                                 .foregroundStyle(RoomTheme.secondary)
                             if store.saveError != nil {
-                                Button(GameStrings.text("save.retry")) { store.retrySaveNow() }
-                                    .font(.system(size: 14, weight: .heavy, design: .rounded))
-                                    .buttonStyle(WarmButtonStyle())
-                                    .padding(.top, 4)
+                                Button {
+                                    store.retrySaveNow()
+                                } label: {
+                                    if store.isSaving {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .tint(.white)
+                                            .frame(minWidth: 72)
+                                    } else {
+                                        Text(GameStrings.text("save.retry"))
+                                    }
+                                }
+                                .disabled(store.isSaving)
+                                .font(.system(size: 14, weight: .heavy, design: .rounded))
+                                .buttonStyle(WarmButtonStyle())
+                                .padding(.top, 4)
                             }
                         }
                     }
@@ -350,7 +362,9 @@ struct SettingsSheetView: View {
     }
 
     private var lastSavedText: String {
-        let date = DayClock.date(fromEpochMs: store.state.updatedAt)
+        guard let date = store.lastPersistedAt else {
+            return GameStrings.text("settings.save.notYet")
+        }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: GameLocalization.shared.language.rawValue)
         formatter.dateStyle = .medium

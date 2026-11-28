@@ -141,6 +141,7 @@ struct ShopSheetView: View {
                             .font(.system(size: 8.5, weight: .heavy, design: .rounded))
                             .foregroundStyle(RoomTheme.secondary)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
                             .background(RoomTheme.paper.opacity(0.9), in: Capsule())

@@ -2177,6 +2177,135 @@ final class DiaryAppStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.home.activeSkin, .mint)
     }
 
+    func testCoverBootstrapDoesNotConsumeDayMilestoneOrBackpayUntilEnterAndOverlayReveal() async throws {
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+
+        let createdDate = Date(timeIntervalSince1970: 1_760_000_000)
+        let day8Date = createdDate.addingTimeInterval(7 * 24 * 3600)
+        let suiteName = "CatLifeTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(createdDate), calendar: utcCal)
+        initial.tutorialActive = false
+        initial.orders.storyBackpay = 150
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { day8Date },
+            calendar: utcCal,
+            userDefaults: defaults
+        )
+
+        // Launch on cover screen: must load state without consuming day milestone, backpay toast, or home visit.
+        await store.bootstrap(enterImmediately: false)
+        XCTAssertTrue(store.isLoaded)
+        XCTAssertFalse(store.hasEntered)
+        XCTAssertFalse(store.overlaysReady)
+        XCTAssertFalse(store.canPresentAdOfferOverlay)
+        XCTAssertNil(store.milestoneModal)
+        XCTAssertEqual(store.state.orders.storyBackpay, 150)
+        XCTAssertNil(store.notices.toast)
+        let seenKey = "CatLife.seenDayMilestones.\(initial.createdAt)"
+        XCTAssertNil(defaults.stringArray(forKey: seenKey))
+
+        // Backgrounding and returning on the cover screen must still not consume milestones.
+        store.setForeground(false)
+        store.setForeground(true)
+        XCTAssertNil(store.milestoneModal)
+        XCTAssertNil(defaults.stringArray(forKey: seenKey))
+
+        // Tap "Open the Diary": backpay toast appears now, while milestone still waits for overlay reveal.
+        store.enterDiary(revealOverlaysImmediately: false)
+        XCTAssertTrue(store.hasEntered)
+        XCTAssertFalse(store.overlaysReady)
+        XCTAssertFalse(store.canPresentAdOfferOverlay)
+        XCTAssertEqual(store.state.orders.storyBackpay, 0)
+        XCTAssertEqual(store.state.coins, 150)
+        XCTAssertEqual(store.notices.toast, GameStrings.format("story.backpayNotice", 150))
+        XCTAssertNil(store.milestoneModal)
+        XCTAssertNil(defaults.stringArray(forKey: seenKey))
+
+        // If the app backgrounds before the 800ms overlay reveal fires, milestone must not be marked seen offscreen.
+        store.setForeground(false)
+        store.completeOverlayReveal()
+        XCTAssertFalse(store.overlaysReady)
+        XCTAssertNil(store.milestoneModal)
+        XCTAssertNil(defaults.stringArray(forKey: seenKey))
+
+        // Returning to foreground reveals overlays and marks `.day7` seen once.
+        store.setForeground(true)
+        XCTAssertTrue(store.overlaysReady)
+        XCTAssertEqual(store.milestoneModal, .day7)
+        XCTAssertEqual(defaults.stringArray(forKey: seenKey), [MilestoneID.day7.rawValue])
+        try await waitUntil { !store.isSaving }
+    }
+
+    func testLastPersistedAtDoesNotAdvanceOnFailedSaveAndAdvancesOnRetry() async throws {
+        let t0 = Date(timeIntervalSince1970: 1_760_000_000)
+        let t1 = t0.addingTimeInterval(300)
+        let t2 = t0.addingTimeInterval(600)
+        let clock = MutableTestClock(t0)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(t0))
+        initial.tutorialActive = false
+        initial.board.cells[0] = MergeItem(chain: .cloth, level: 3)
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { clock.now },
+            saveRetryDelays: [.milliseconds(20), .milliseconds(30), .milliseconds(40)]
+        )
+        try await bootstrapReady(store)
+        XCTAssertEqual(store.lastPersistedAt, t0)
+
+        // Fail disk writes at t1: in-memory state.updatedAt advances to t1, but lastPersistedAt MUST stay at t0!
+        clock.now = t1
+        await repo.setFailuresRemaining(10)
+        store.sellItem(at: 0)
+        try await waitUntil(timeoutMs: 1200) { store.saveError == GameStrings.text("save.writeFailedManual") && !store.isSaving }
+        XCTAssertEqual(store.state.updatedAt, DayClock.epochMs(t1))
+        XCTAssertEqual(store.lastPersistedAt, t0, "Failed disk write must not advance lastPersistedAt")
+
+        // Restore disk and retry at t2: lastPersistedAt must now advance to t2!
+        clock.now = t2
+        await repo.setFailuresRemaining(0)
+        store.retrySaveNow()
+        try await waitUntil { store.saveError == nil && !store.isSaving }
+        XCTAssertEqual(store.lastPersistedAt, t2)
+    }
+
+    func testCoverSoftTapHapticHonorsHapticsSetting() async {
+        let now = Date(timeIntervalSince1970: 1_760_000_000)
+
+        var disabledState = DiaryGameState.fresh(now: DayClock.epochMs(now))
+        disabledState.settings.audio.haptics = false
+        let disabledStore = DiaryAppStore(
+            repository: FlakySaveRepository(initialState: disabledState),
+            adService: MockRewardedAdService(),
+            clock: { now }
+        )
+        await disabledStore.bootstrap(enterImmediately: false)
+        disabledStore.audio.playSoftTapHaptic()
+        XCTAssertEqual(disabledStore.audio.hapticPlayCount, 0)
+
+        var enabledState = DiaryGameState.fresh(now: DayClock.epochMs(now))
+        enabledState.settings.audio.haptics = true
+        let enabledStore = DiaryAppStore(
+            repository: FlakySaveRepository(initialState: enabledState),
+            adService: MockRewardedAdService(),
+            clock: { now }
+        )
+        await enabledStore.bootstrap(enterImmediately: false)
+        enabledStore.audio.playSoftTapHaptic()
+        XCTAssertEqual(enabledStore.audio.hapticPlayCount, 1)
+    }
+
     private func bootstrapReady(_ store: DiaryAppStore) async throws {
         await store.bootstrap()
         while store.currentPhotoModalID != nil {
