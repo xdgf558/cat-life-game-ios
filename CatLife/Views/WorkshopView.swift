@@ -73,6 +73,7 @@ struct WorkshopView: View {
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
+                store.refreshDayIfNeeded()
                 if Date().timeIntervalSince(lastTouchAt) >= 2.5 && dragFromCell == nil {
                     let pair = DiaryBoard.findMergeablePair(store.state, excluding: store.reservedBoardCells)
                     if hintPair?.0 != pair?.0 || hintPair?.1 != pair?.1 { hintPair = pair }

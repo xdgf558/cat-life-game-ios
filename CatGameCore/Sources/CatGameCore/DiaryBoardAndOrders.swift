@@ -342,11 +342,22 @@ public enum DiaryOrders {
         preferredCells: [Int] = [],
         balance: DiaryBalance = .default
     ) -> DeliverWeekendOrderResult {
-        guard let order = state.orders.weekendOrder ?? fallbackOrder,
-              expectedID == nil || order.id == expectedID else {
+        let order: CustomerOrder
+        if let expectedID {
+            if let active = state.orders.weekendOrder, active.id == expectedID {
+                order = active
+            } else if let fallback = fallbackOrder, fallback.id == expectedID {
+                order = fallback
+            } else {
+                return .notFound
+            }
+        } else if let active = state.orders.weekendOrder ?? fallbackOrder {
+            order = active
+        } else {
             return .notFound
         }
-        if order.id.hasPrefix("w"), let week = Int(order.id.dropFirst()), state.orders.weekendDoneWeek == week {
+        if order.id.hasPrefix("w"), let week = Int(order.id.dropFirst()),
+           let done = state.orders.weekendDoneWeek, done >= week {
             return .notFound
         }
         guard canDeliver(state, order: order) else { return .missingItems }
@@ -359,9 +370,11 @@ public enum DiaryOrders {
         let gift = advanceCustomer(&state, customer: order.customer, balance: balance)
         let story = DiaryStories.claimStory(&state, customer: order.customer, balance: balance)
         if state.target?.orderID == order.id { state.target = nil }
-        state.orders.weekendOrder = nil
+        if state.orders.weekendOrder?.id == order.id {
+            state.orders.weekendOrder = nil
+        }
         if order.id.hasPrefix("w"), let week = Int(order.id.dropFirst()) {
-            state.orders.weekendDoneWeek = week
+            state.orders.weekendDoneWeek = max(state.orders.weekendDoneWeek ?? 0, week)
         }
         return .delivered(order: order, wage: order.wage, gift: gift, story: story)
     }
@@ -415,6 +428,7 @@ public enum DiaryOrders {
         id: FurnitureID,
         now: Int64? = nil,
         quoted: Int? = nil,
+        committedPrice: Int? = nil,
         calendar: Calendar = .current,
         balance: DiaryBalance = .default
     ) -> BuyFurnitureResult {
@@ -427,9 +441,14 @@ public enum DiaryOrders {
             case .xueqiu(let level): return .xueqiuLevel(level)
             }
         }
-        let price = now.map { DiaryThemes.priceNow(furniture: id, now: $0, calendar: calendar, balance: balance) } ?? basePrice
-        if let quoted, quoted != price {
-            return .priceChanged(price)
+        let price: Int
+        if let committedPrice {
+            price = committedPrice
+        } else {
+            price = now.map { DiaryThemes.priceNow(furniture: id, now: $0, calendar: calendar, balance: balance) } ?? basePrice
+            if let quoted, quoted != price {
+                return .priceChanged(price)
+            }
         }
         guard state.coins >= price else { return .notEnoughCoins }
         state.coins -= price

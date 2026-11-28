@@ -394,6 +394,7 @@ extension GameStrings {
         "shop.skinEquipped": "Equipped",
         "shop.skinUse": "Apply",
         "shop.skinAppliedNotice": "Applied %@ room theme",
+        "shop.skinBoughtNotice": "Purchased %@ room theme",
         "ad.wagePriceUp": "Night sale ended—small order bonus is no longer active",
         "ad.wageAffordable": "With the discount, you already have enough coins for your wishlist item!",
 

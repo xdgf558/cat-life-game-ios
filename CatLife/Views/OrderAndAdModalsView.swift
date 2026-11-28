@@ -13,7 +13,7 @@ struct OrderDetailSheetView: View {
         let checks = store.unreservedOrderItemMatches(for: order)
         let progress = store.state.orders.customerProgress[order.customer] ?? 0
         let giftEvery = DiaryBalance.default.orders.giftEveryOrders
-        let isWeekend = store.state.orders.weekendOrder?.id == order.id
+        let isWeekend = order.id.hasPrefix("w") || store.displayedWeekendOrder?.id == order.id
         let unlockedStories = DiaryStories.storiesUnlocked(store.state, customer: order.customer)
         let nextStoryOrders = DiaryStories.ordersToNextStory(store.state, customer: order.customer)
         let totalStories = DiaryBalance.default.stories.milestones.count

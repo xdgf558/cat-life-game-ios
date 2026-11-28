@@ -518,15 +518,31 @@ public struct DiaryGameState: Codable, Equatable, Sendable {
             )
         }
         if rawVersion >= 2 {
-            // v2 (M2+) saves must explicitly persist `storiesSeen` so a truncated/corrupt v2 save
-            // never re-runs the one-time M1 -> M2 story backpay migration.
+            // v2 (M2+) saves must explicitly persist every non-optional M2 field so a damaged v2 save
+            // triggers backup recovery instead of silently resetting treasures/skins or re-running M1 backpay.
             let ordersContainer = try c.nestedContainer(keyedBy: OrdersState.CodingKeys.self, forKey: .orders)
-            guard ordersContainer.contains(.storiesSeen) else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .orders,
-                    in: c,
-                    debugDescription: "Missing storiesSeen in schemaVersion \(rawVersion)"
-                )
+            for requiredOrderKey: OrdersState.CodingKeys in [.storiesSeen, .storyBackpay] {
+                guard ordersContainer.contains(requiredOrderKey),
+                      !(try ordersContainer.decodeNil(forKey: requiredOrderKey)) else {
+                    throw DecodingError.dataCorruptedError(
+                        forKey: .orders,
+                        in: c,
+                        debugDescription: "Missing \(requiredOrderKey.rawValue) in schemaVersion \(rawVersion)"
+                    )
+                }
+            }
+            let homeContainer = try c.nestedContainer(keyedBy: HomeState.CodingKeys.self, forKey: .home)
+            for requiredHomeKey: HomeState.CodingKeys in [
+                .skinsOwned, .activeSkin, .treasures, .outingsToday, .outingsDay, .recallUsedToday
+            ] {
+                guard homeContainer.contains(requiredHomeKey),
+                      !(try homeContainer.decodeNil(forKey: requiredHomeKey)) else {
+                    throw DecodingError.dataCorruptedError(
+                        forKey: .home,
+                        in: c,
+                        debugDescription: "Missing \(requiredHomeKey.rawValue) in schemaVersion \(rawVersion)"
+                    )
+                }
             }
         }
         schemaVersion = Self.currentSchemaVersion

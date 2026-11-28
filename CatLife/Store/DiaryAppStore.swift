@@ -76,6 +76,12 @@ struct PendingOrderDelivery: Equatable {
 struct PendingSkinPurchase: Equatable {
     let skinID: RoomSkinID
     let quotedPrice: Int
+    let selectionRevision: Int
+}
+
+struct PendingFurniturePurchase: Equatable {
+    let furnitureID: FurnitureID
+    let quotedPrice: Int
 }
 
 enum PurchaseButtonStatus: Equatable {
@@ -126,6 +132,7 @@ final class DiaryAppStore {
     private(set) var recentMergedCell: Int?
     private(set) var pendingOrderDeliveries: [PendingOrderDelivery] = []
     private(set) var pendingSkinPurchases: [PendingSkinPurchase] = []
+    private(set) var pendingFurniturePurchases: [PendingFurniturePurchase] = []
 
     // Debug / testing toggles (exposed in Settings)
     var mockAdsEnabled: Bool = true {
@@ -153,6 +160,7 @@ final class DiaryAppStore {
     @ObservationIgnored private var pendingAdCompletions: [PendingAdCompletion] = []
     @ObservationIgnored private var expiredWishGuardGoal: WishGoal?
     @ObservationIgnored private var stateGeneration = 0
+    @ObservationIgnored private var skinSelectionRevision = 0
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var poseTask: Task<Void, Never>?
@@ -239,11 +247,12 @@ final class DiaryAppStore {
     }
 
     var displayedWeekendOrder: CustomerOrder? {
-        state.orders.weekendOrder ?? pendingOrderDeliveries.first(where: { $0.isWeekend })?.weekendOrder
+        pendingOrderDeliveries.first(where: { $0.isWeekend })?.weekendOrder ?? state.orders.weekendOrder
     }
 
     var reservedPurchaseCoins: Int {
         pendingSkinPurchases.reduce(0) { $0 + $1.quotedPrice }
+            + pendingFurniturePurchases.reduce(0) { $0 + $1.quotedPrice }
     }
 
     var availableCoinsForPurchase: Int {
@@ -256,6 +265,17 @@ final class DiaryAppStore {
 
     func skinPurchaseStatus(for id: RoomSkinID) -> PurchaseButtonStatus {
         if isSkinPurchasePending(id) {
+            return isSaving ? .saving : .retrySave
+        }
+        return .available
+    }
+
+    func isFurniturePurchasePending(_ id: FurnitureID) -> Bool {
+        pendingFurniturePurchases.contains { $0.furnitureID == id }
+    }
+
+    func furniturePurchaseStatus(for id: FurnitureID) -> PurchaseButtonStatus {
+        if isFurniturePurchasePending(id) {
             return isSaving ? .saving : .retrySave
         }
         return .available
@@ -591,6 +611,17 @@ final class DiaryAppStore {
     }
 
     func setTarget(item: MergeItem, orderID: String? = nil) {
+        _ = refreshDayIfNeeded()
+        if let orderID {
+            let exists = state.orders.active.contains(where: { $0.id == orderID })
+                || state.orders.weekendOrder?.id == orderID
+            guard exists else {
+                if case .orderDetail(let sheetOrder) = activeSheet, sheetOrder.id == orderID {
+                    activeSheet = nil
+                }
+                return
+            }
+        }
         let out = engine.setTarget(item: item, orderID: orderID, now: nowMs)
         syncStateAndApply(events: out.events, save: true)
         audio.play(.tap, userInitiated: true)
@@ -867,49 +898,41 @@ final class DiaryAppStore {
     }
 
     func buyFurniture(_ id: FurnitureID, quoted: Int? = nil) {
-        let currentPrice = currentFurniturePrice(id)
-        if reservedPurchaseCoins > 0,
-           !state.home.furnitureOwned.contains(id),
-           DiaryThemes.furnitureLock(state, id: id, balance: engine.balance) == nil,
-           (quoted == nil || quoted == currentPrice),
-           availableCoinsForPurchase < currentPrice {
+        if isFurniturePurchasePending(id) {
+            if !isSaving {
+                scheduleSave(force: true, resetBackoff: true)
+            }
+            return
+        }
+        _ = refreshDayIfNeeded()
+        guard let def = DiaryCatalog.furnitureDef(id), (def.price ?? 0) > 0 else { return }
+        if state.home.furnitureOwned.contains(id) { return }
+        if let lock = DiaryThemes.furnitureLock(state, id: id, balance: engine.balance) {
+            switch lock {
+            case .room(let room):
+                let lv = DiaryProgression.unlockLevel(for: .room(room), balance: engine.balance)
+                notices.show(GameStrings.format("room.lockedNotice", lv))
+            case .theme(let lv):
+                notices.show(GameStrings.format("shop.themeLocked", lv))
+            case .xueqiu(let lv):
+                notices.show(GameStrings.format("shop.xueqiuLocked", lv))
+            }
+            return
+        }
+        let price = currentFurniturePrice(id)
+        if let quoted, quoted != price {
+            notices.show(GameStrings.format("shop.priceChanged", price))
+            return
+        }
+        guard availableCoinsForPurchase >= price else {
             let wishOut = engine.setWishlist(id, now: nowMs)
             syncStateAndApply(events: wishOut.events, save: true)
             notices.show(GameStrings.format("shop.wishlistPinned", GameStrings.furnitureName(id)))
             return
         }
-        let out = engine.buyFurniture(id: id, quoted: quoted, now: nowMs)
-        switch out.value {
-        case .bought(let furniture, _):
-            syncStateAndApply(events: out.events, save: true)
-            audio.play(.purchase, userInitiated: true)
-            notices.show(GameStrings.format("shop.boughtNotice", GameStrings.furnitureName(furniture)))
-            let settle = engine.settleNewFurniture(now: nowMs)
-            syncStateAndApply(events: settle.events, save: true)
-            if let def = DiaryCatalog.furnitureDef(furniture) {
-                activeRoom = def.room
-            }
-            activeSheet = nil
-        case .notEnoughCoins:
-            let wishOut = engine.setWishlist(id, now: nowMs)
-            syncStateAndApply(events: wishOut.events, save: true)
-            notices.show(GameStrings.format("shop.wishlistPinned", GameStrings.furnitureName(id)))
-        case .roomLocked(let room):
-            syncStateAndApply(events: out.events, save: false)
-            let lv = DiaryProgression.unlockLevel(for: .room(room), balance: engine.balance)
-            notices.show(GameStrings.format("room.lockedNotice", lv))
-        case .themeLocked(let lv):
-            syncStateAndApply(events: out.events, save: false)
-            notices.show(GameStrings.format("shop.themeLocked", lv))
-        case .xueqiuLevel(let lv):
-            syncStateAndApply(events: out.events, save: false)
-            notices.show(GameStrings.format("shop.xueqiuLocked", lv))
-        case .priceChanged(let currentPrice):
-            syncStateAndApply(events: out.events, save: false)
-            notices.show(GameStrings.format("shop.priceChanged", currentPrice))
-        case .owned, .notForSale:
-            syncStateAndApply(events: out.events, save: false)
-        }
+        // Persist furniture purchase before mutating coins/ownership/layout or showing success notice.
+        pendingFurniturePurchases.append(PendingFurniturePurchase(furnitureID: id, quotedPrice: price))
+        scheduleSave(force: true, resetBackoff: true)
     }
 
     func buyRoomSkin(_ id: RoomSkinID, quoted: Int? = nil) {
@@ -938,13 +961,17 @@ final class DiaryAppStore {
             return
         }
         // Persist skin purchase before mutating coins/activeSkin or showing success notice.
-        pendingSkinPurchases.append(PendingSkinPurchase(skinID: id, quotedPrice: price))
+        skinSelectionRevision &+= 1
+        pendingSkinPurchases.append(
+            PendingSkinPurchase(skinID: id, quotedPrice: price, selectionRevision: skinSelectionRevision)
+        )
         scheduleSave(force: true, resetBackoff: true)
     }
 
     func equipRoomSkin(_ id: RoomSkinID) {
         let out = engine.equipRoomSkin(id: id, now: nowMs)
         if case .applied(let skin, _) = out.value {
+            skinSelectionRevision &+= 1
             syncStateAndApply(events: out.events, save: true)
             audio.play(.tap, userInitiated: true)
             notices.show(GameStrings.format("shop.skinAppliedNotice", GameStrings.roomSkinName(skin)))
@@ -1092,8 +1119,10 @@ final class DiaryAppStore {
         let previousCreatedAt = state.createdAt
         userDefaults.removeObject(forKey: seenDayMilestonesStorageKey(for: previousCreatedAt))
         stateGeneration &+= 1
+        skinSelectionRevision &+= 1
         pendingOrderDeliveries.removeAll()
         pendingSkinPurchases.removeAll()
+        pendingFurniturePurchases.removeAll()
         pendingAdCompletions.removeAll()
         expiredWishGuardGoal = nil
         let out = engine.resetProgress(now: nowMs)
@@ -1161,6 +1190,20 @@ final class DiaryAppStore {
         state = nextState
         if selectedCatID == .xueqiu && state.cats[.xueqiu] == nil {
             selectedCatID = .primary
+        }
+        if case .orderDetail(let sheetOrder) = activeSheet {
+            let orderStillLive = state.orders.active.contains(where: { $0.id == sheetOrder.id })
+                || displayedWeekendOrder?.id == sheetOrder.id
+            if !orderStillLive {
+                activeSheet = nil
+            }
+        }
+        if case .material(let material) = activeAdOffer, let orderID = material.orderID {
+            let orderStillLive = state.orders.active.contains(where: { $0.id == orderID })
+                || state.orders.weekendOrder?.id == orderID
+            if !orderStillLive {
+                activeAdOffer = nil
+            }
         }
         for event in events {
             switch event {
@@ -1244,6 +1287,7 @@ final class DiaryAppStore {
             while !self.pendingAdCompletions.isEmpty
                 || !self.pendingOrderDeliveries.isEmpty
                 || !self.pendingSkinPurchases.isEmpty
+                || !self.pendingFurniturePurchases.isEmpty
                 || self.saveNeedsWrite {
                 let generation = self.stateGeneration
                 let now = self.clock()
@@ -1340,10 +1384,12 @@ final class DiaryAppStore {
                         let hadPendingWrite = self.saveNeedsWrite
                         self.saveNeedsWrite = false
                         let baseState = self.state
+                        let shouldEquipAtSave = skinPurchase.selectionRevision == self.skinSelectionRevision
                         let candidateEngine = self.engine.cloned()
                         let out = candidateEngine.buyRoomSkin(
                             id: skinPurchase.skinID,
                             quoted: skinPurchase.quotedPrice,
+                            equip: shouldEquipAtSave,
                             now: saveNowMs
                         )
                         switch out.value {
@@ -1352,8 +1398,10 @@ final class DiaryAppStore {
                             guard self.stateGeneration == generation else { continue }
                             self.pendingSkinPurchases.removeAll { $0.skinID == skinPurchase.skinID }
                             self.commitSavedSkinPurchase(
+                                purchase: skinPurchase,
                                 skin: skin,
                                 price: price,
+                                equippedAtSave: shouldEquipAtSave,
                                 baseState: baseState,
                                 candidateEngine: candidateEngine,
                                 commitEvents: out.events,
@@ -1380,6 +1428,67 @@ final class DiaryAppStore {
                             }
                         case .owned, .notOwned:
                             self.pendingSkinPurchases.removeAll { $0.skinID == skinPurchase.skinID }
+                            if hadPendingWrite {
+                                try await self.repository.save(self.state, now: now)
+                            }
+                        }
+                    } else if let furniturePurchase = self.pendingFurniturePurchases.first {
+                        let hadPendingWrite = self.saveNeedsWrite
+                        self.saveNeedsWrite = false
+                        let baseState = self.state
+                        let candidateEngine = self.engine.cloned()
+                        let buyOut = candidateEngine.buyFurniture(
+                            id: furniturePurchase.furnitureID,
+                            quoted: furniturePurchase.quotedPrice,
+                            now: saveNowMs
+                        )
+                        switch buyOut.value {
+                        case .bought(let furniture, let price):
+                            let settleOut = candidateEngine.settleNewFurniture(now: saveNowMs)
+                            try await self.repository.save(candidateEngine.state, now: now)
+                            guard self.stateGeneration == generation else { continue }
+                            self.pendingFurniturePurchases.removeAll { $0.furnitureID == furniturePurchase.furnitureID }
+                            self.commitSavedFurniturePurchase(
+                                furniture: furniture,
+                                price: price,
+                                baseState: baseState,
+                                candidateEngine: candidateEngine,
+                                commitEvents: buyOut.events + settleOut.events,
+                                saveNowMs: saveNowMs
+                            )
+                        case .priceChanged(let currentPrice):
+                            self.pendingFurniturePurchases.removeAll { $0.furnitureID == furniturePurchase.furnitureID }
+                            self.notices.show(GameStrings.format("shop.priceChanged", currentPrice))
+                            if hadPendingWrite {
+                                try await self.repository.save(self.state, now: now)
+                            }
+                        case .notEnoughCoins:
+                            self.pendingFurniturePurchases.removeAll { $0.furnitureID == furniturePurchase.furnitureID }
+                            let wishOut = self.engine.setWishlist(furniturePurchase.furnitureID, now: saveNowMs)
+                            self.syncStateAndApply(events: wishOut.events, save: false)
+                            self.notices.show(GameStrings.format("shop.wishlistPinned", GameStrings.furnitureName(furniturePurchase.furnitureID)))
+                            try await self.repository.save(self.state, now: now)
+                        case .roomLocked(let room):
+                            self.pendingFurniturePurchases.removeAll { $0.furnitureID == furniturePurchase.furnitureID }
+                            let lv = DiaryProgression.unlockLevel(for: .room(room), balance: self.engine.balance)
+                            self.notices.show(GameStrings.format("room.lockedNotice", lv))
+                            if hadPendingWrite {
+                                try await self.repository.save(self.state, now: now)
+                            }
+                        case .themeLocked(let lv):
+                            self.pendingFurniturePurchases.removeAll { $0.furnitureID == furniturePurchase.furnitureID }
+                            self.notices.show(GameStrings.format("shop.themeLocked", lv))
+                            if hadPendingWrite {
+                                try await self.repository.save(self.state, now: now)
+                            }
+                        case .xueqiuLevel(let lv):
+                            self.pendingFurniturePurchases.removeAll { $0.furnitureID == furniturePurchase.furnitureID }
+                            self.notices.show(GameStrings.format("shop.xueqiuLocked", lv))
+                            if hadPendingWrite {
+                                try await self.repository.save(self.state, now: now)
+                            }
+                        case .owned, .notForSale:
+                            self.pendingFurniturePurchases.removeAll { $0.furnitureID == furniturePurchase.furnitureID }
                             if hadPendingWrite {
                                 try await self.repository.save(self.state, now: now)
                             }
@@ -1495,7 +1604,46 @@ final class DiaryAppStore {
     }
 
     private func commitSavedSkinPurchase(
+        purchase: PendingSkinPurchase,
         skin: RoomSkinID,
+        price: Int,
+        equippedAtSave: Bool,
+        baseState: DiaryGameState,
+        candidateEngine: DiaryGameEngine,
+        commitEvents: [DiaryGameEvent],
+        saveNowMs: Int64
+    ) {
+        let commitNowMs = max(saveNowMs, max(self.state.updatedAt, self.nowMs))
+        let shouldEquipNow = purchase.selectionRevision == self.skinSelectionRevision
+        if self.state == baseState && shouldEquipNow == equippedAtSave {
+            let currentAdConfig = self.engine.adConfig
+            self.engine = candidateEngine
+            self.engine.adConfig = currentAdConfig
+            let dayOut = self.engine.refreshDay(now: commitNowMs)
+            if dayOut.didMutate {
+                self.syncStateAndApply(events: commitEvents + dayOut.events, save: false)
+                self.saveNeedsWrite = true
+            } else {
+                self.syncStateAndApply(events: commitEvents, save: false)
+            }
+        } else {
+            let liveOut = self.engine.buyRoomSkin(
+                id: skin,
+                committedPrice: price,
+                equip: shouldEquipNow,
+                now: commitNowMs
+            )
+            guard case .applied = liveOut.value else { return }
+            self.syncStateAndApply(events: liveOut.events, save: false)
+            self.saveNeedsWrite = true
+        }
+        self.audio.play(.purchase, userInitiated: true)
+        let noticeKey = shouldEquipNow ? "shop.skinAppliedNotice" : "shop.skinBoughtNotice"
+        self.notices.show(GameStrings.format(noticeKey, GameStrings.roomSkinName(skin)))
+    }
+
+    private func commitSavedFurniturePurchase(
+        furniture: FurnitureID,
         price: Int,
         baseState: DiaryGameState,
         candidateEngine: DiaryGameEngine,
@@ -1515,17 +1663,24 @@ final class DiaryAppStore {
                 self.syncStateAndApply(events: commitEvents, save: false)
             }
         } else {
-            let liveOut = self.engine.buyRoomSkin(
-                id: skin,
+            let liveBuy = self.engine.buyFurniture(
+                id: furniture,
                 committedPrice: price,
                 now: commitNowMs
             )
-            guard case .applied = liveOut.value else { return }
-            self.syncStateAndApply(events: liveOut.events, save: false)
+            guard case .bought = liveBuy.value else { return }
+            let liveSettle = self.engine.settleNewFurniture(now: commitNowMs)
+            self.syncStateAndApply(events: liveBuy.events + liveSettle.events, save: false)
             self.saveNeedsWrite = true
         }
         self.audio.play(.purchase, userInitiated: true)
-        self.notices.show(GameStrings.format("shop.skinAppliedNotice", GameStrings.roomSkinName(skin)))
+        self.notices.show(GameStrings.format("shop.boughtNotice", GameStrings.furnitureName(furniture)))
+        if let def = DiaryCatalog.furnitureDef(furniture) {
+            self.activeRoom = def.room
+        }
+        if self.activeSheet == .shop {
+            self.activeSheet = nil
+        }
     }
 
     private func commitSavedOrderDelivery(

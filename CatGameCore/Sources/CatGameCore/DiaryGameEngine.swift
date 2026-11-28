@@ -226,9 +226,22 @@ public final class DiaryGameEngine {
         }
     }
 
-    public func buyFurniture(id: FurnitureID, quoted: Int? = nil, now: Int64) -> EngineCommandOutput<BuyFurnitureResult> {
+    public func buyFurniture(
+        id: FurnitureID,
+        quoted: Int? = nil,
+        committedPrice: Int? = nil,
+        now: Int64
+    ) -> EngineCommandOutput<BuyFurnitureResult> {
         run(now: now) { events in
-            let result = DiaryOrders.buyFurniture(&state, id: id, now: now, quoted: quoted, calendar: calendar, balance: balance)
+            let result = DiaryOrders.buyFurniture(
+                &state,
+                id: id,
+                now: now,
+                quoted: quoted,
+                committedPrice: committedPrice,
+                calendar: calendar,
+                balance: balance
+            )
             if case .bought(let furniture, let price) = result {
                 events.append(.furnitureBought(furniture: furniture, price: price))
             }
@@ -240,6 +253,7 @@ public final class DiaryGameEngine {
         id: RoomSkinID,
         quoted: Int? = nil,
         committedPrice: Int? = nil,
+        equip: Bool = true,
         now: Int64
     ) -> EngineCommandOutput<RoomSkinActionResult> {
         run(now: now) { events in
@@ -249,6 +263,7 @@ public final class DiaryGameEngine {
                 now: now,
                 quoted: quoted,
                 committedPrice: committedPrice,
+                equip: equip,
                 calendar: calendar,
                 balance: balance
             )

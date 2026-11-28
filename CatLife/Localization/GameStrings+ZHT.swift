@@ -394,6 +394,7 @@ extension GameStrings {
         "shop.skinEquipped": "使用中",
         "shop.skinUse": "換上",
         "shop.skinAppliedNotice": "已換上「%@」房間配色",
+        "shop.skinBoughtNotice": "已買下「%@」房間配色",
         "ad.wagePriceUp": "夜間特價已結束，該小單獎勵入口已取消",
         "ad.wageAffordable": "特價後目前金幣已足夠購買心願家具",
 

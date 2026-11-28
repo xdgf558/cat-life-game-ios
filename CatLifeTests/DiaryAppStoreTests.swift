@@ -334,11 +334,11 @@ final class DiaryAppStoreTests: XCTestCase {
         XCTAssertEqual(persisted?.coins, 130)
         XCTAssertNil(persisted?.board.cells[0])
 
-        // Now the persisted coins can be spent cleanly.
+        // Now the persisted coins can be spent cleanly (waiting for transactional save to commit).
         store.buyFurniture(.windowCushion)
+        try await waitUntil { !store.isSaving && store.pendingFurniturePurchases.isEmpty }
         XCTAssertTrue(store.state.home.furnitureOwned.contains(.windowCushion))
         XCTAssertEqual(store.state.coins, 10)
-        try await waitUntil { !store.isSaving }
     }
 
     func testReservedOrderItemCannotBeBroughtHomeSoldOrMergedDuringSave() async throws {
@@ -1917,6 +1917,264 @@ final class DiaryAppStoreTests: XCTestCase {
         XCTAssertNil(store.state.orders.weekendOrder)
         XCTAssertNil(store.state.target)
         XCTAssertNil(store.activeAdOffer)
+    }
+
+    func testFurniturePurchaseWaitsForSuccessfulSaveBeforeCreditingOwnershipOrToast() async throws {
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        var noonComps = DateComponents()
+        noonComps.calendar = utcCal
+        noonComps.timeZone = utcCal.timeZone
+        noonComps.year = 2026
+        noonComps.month = 11
+        noonComps.day = 28
+        noonComps.hour = 12
+        let noon = try XCTUnwrap(noonComps.date)
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let diskRepo = DiarySaveRepository(directory: dir)
+
+        let price = try XCTUnwrap(DiaryCatalog.furnitureDef(.winterKotatsu)?.price)
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(noon), calendar: utcCal)
+        initial.tutorialActive = false
+        initial.primaryCat.level = 8 // unlocks winter theme
+        var xq = DiaryCatState(id: .xueqiu, now: DayClock.epochMs(noon))
+        xq.level = 5 // unlocks `.winterKotatsu`
+        initial.cats[.xueqiu] = xq
+        initial.coins = price + 200
+        try await diskRepo.save(initial, now: noon)
+
+        let gateRepo = GatedDiskSaveRepository(backing: diskRepo)
+        let store = DiaryAppStore(
+            repository: gateRepo,
+            adService: MockRewardedAdService(),
+            clock: { noon },
+            calendar: utcCal,
+            saveRetryDelays: [.milliseconds(20), .milliseconds(30), .milliseconds(40)]
+        )
+        try await bootstrapReady(store)
+        store.activeSheet = .shop
+        store.notices.dismiss()
+
+        // Force disk write failures when purchasing theme furniture `.winterKotatsu`.
+        await gateRepo.setFailuresRemaining(10)
+        store.buyFurniture(.winterKotatsu, quoted: price)
+        try await waitUntil(timeoutMs: 1200) { store.saveError == GameStrings.text("save.writeFailedManual") && !store.isSaving }
+
+        // While write failed: coins, ownership, layout, shop sheet, and toast must NOT commit prematurely!
+        XCTAssertEqual(store.state.coins, price + 200)
+        XCTAssertFalse(store.state.home.furnitureOwned.contains(.winterKotatsu))
+        XCTAssertNil(store.notices.toast)
+        XCTAssertEqual(store.activeSheet, .shop)
+        XCTAssertEqual(store.furniturePurchaseStatus(for: .winterKotatsu), .retrySave)
+        XCTAssertEqual(store.availableCoinsForPurchase, 200)
+
+        let diskWhileFailed = try await diskRepo.loadOrCreate(now: noon, calendar: utcCal)
+        XCTAssertEqual(diskWhileFailed.coins, price + 200)
+        XCTAssertFalse(diskWhileFailed.home.furnitureOwned.contains(.winterKotatsu))
+
+        // Restore disk and retry -> commits coins, ownership, layout, toast, and closes shop cleanly!
+        await gateRepo.setFailuresRemaining(0)
+        store.retrySaveNow()
+        try await waitUntil { store.saveError == nil && !store.isSaving && store.pendingFurniturePurchases.isEmpty }
+
+        XCTAssertEqual(store.state.coins, 200)
+        XCTAssertTrue(store.state.home.furnitureOwned.contains(.winterKotatsu))
+        XCTAssertEqual(store.notices.toast, GameStrings.format("shop.boughtNotice", GameStrings.furnitureName(.winterKotatsu)))
+        XCTAssertNil(store.activeSheet)
+
+        let diskAfterRetry = try await diskRepo.loadOrCreate(now: noon, calendar: utcCal)
+        XCTAssertEqual(diskAfterRetry.coins, 200)
+        XCTAssertTrue(diskAfterRetry.home.furnitureOwned.contains(.winterKotatsu))
+    }
+
+    func testWeekendOrderRetriedOnNextWeekendSucceedsAndKeepsNewWeekendOrder() async throws {
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+
+        var week1Comps = DateComponents()
+        week1Comps.calendar = utcCal
+        week1Comps.timeZone = utcCal.timeZone
+        week1Comps.year = 2026
+        week1Comps.month = 11
+        week1Comps.day = 29 // Sunday (weekKey 20261123)
+        week1Comps.hour = 23
+        week1Comps.minute = 59
+        let week1Sun = try XCTUnwrap(week1Comps.date)
+        let week2Sat = week1Sun.addingTimeInterval(6 * 24 * 3600) // Saturday 2026-12-05 (weekKey 20261130)
+        let clock = MutableTestClock(week1Sun)
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let diskRepo = DiarySaveRepository(directory: dir)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(week1Sun), calendar: utcCal)
+        initial.tutorialActive = false
+        initial.primaryCat.level = 7
+        initial.coins = 50
+        DiaryOrders.syncWeekendOrder(&initial)
+        let week1Order = try XCTUnwrap(initial.orders.weekendOrder)
+        for (idx, item) in week1Order.items.enumerated() {
+            initial.board.cells[idx] = item
+        }
+        try await diskRepo.save(initial, now: week1Sun)
+
+        let gateRepo = GatedDiskSaveRepository(backing: diskRepo)
+        let store = DiaryAppStore(
+            repository: gateRepo,
+            adService: MockRewardedAdService(),
+            clock: { clock.now },
+            calendar: utcCal,
+            saveRetryDelays: [.milliseconds(20), .milliseconds(30), .milliseconds(40)]
+        )
+        try await bootstrapReady(store)
+
+        // Submit Week 1 weekend order on Sunday, but disk fails until automatic retries exhaust.
+        await gateRepo.setFailuresRemaining(10)
+        store.deliverOrder(week1Order.id)
+        try await waitUntil(timeoutMs: 1200) { store.saveError == GameStrings.text("save.writeFailedManual") && !store.isSaving }
+        XCTAssertEqual(store.orderCardStatus(for: week1Order), .retrySave)
+
+        // Player retries on the NEXT weekend (Saturday Dec 5) after disk recovers!
+        clock.now = week2Sat
+        await gateRepo.setFailuresRemaining(0)
+        store.retrySaveNow()
+        try await waitUntil { store.saveError == nil && !store.isSaving && store.pendingOrderDeliveries.isEmpty }
+
+        XCTAssertEqual(store.state.coins, 50 + week1Order.wage)
+        XCTAssertEqual(store.state.orders.weekendDoneWeek, 20_261_123)
+        XCTAssertEqual(store.state.orders.weekendOrder?.id, "w20261130", "New weekend order for Week 2 must remain available!")
+        for idx in week1Order.items.indices {
+            XCTAssertNil(store.state.board.cells[idx])
+        }
+
+        let reloaded = try await diskRepo.loadOrCreate(now: week2Sat, calendar: utcCal)
+        XCTAssertEqual(reloaded.coins, 50 + week1Order.wage)
+        XCTAssertEqual(reloaded.orders.weekendOrder?.id, "w20261130")
+    }
+
+    func testWeekendRolloverClosesOpenWeekendOrderSheetAndMaterialAdModal() async throws {
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+
+        var sunComps = DateComponents()
+        sunComps.calendar = utcCal
+        sunComps.timeZone = utcCal.timeZone
+        sunComps.year = 2026
+        sunComps.month = 11
+        sunComps.day = 29
+        sunComps.hour = 23
+        sunComps.minute = 59
+        sunComps.second = 30
+        let sundayNight = try XCTUnwrap(sunComps.date)
+        let mondayMorning = sundayNight.addingTimeInterval(60)
+        let clock = MutableTestClock(sundayNight)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(sundayNight), calendar: utcCal)
+        initial.tutorialActive = false
+        initial.primaryCat.level = 7
+        initial.orders.completedTotal = 5
+        initial.energy.current = 0
+        initial.energy.updatedAt = DayClock.epochMs(sundayNight)
+        DiaryOrders.syncWeekendOrder(&initial)
+        let weekend = try XCTUnwrap(initial.orders.weekendOrder)
+        let targetItem = try XCTUnwrap(weekend.items.first)
+        var remaining = targetItem.energyValue - 1
+        var cellIdx = 0
+        for lvl in stride(from: targetItem.level - 1, through: 1, by: -1) {
+            let val = MergeItem(chain: targetItem.chain, level: lvl).energyValue
+            while remaining >= val {
+                initial.board.cells[cellIdx] = MergeItem(chain: targetItem.chain, level: lvl)
+                cellIdx += 1
+                remaining -= val
+            }
+        }
+
+        let repo = FlakySaveRepository(initialState: initial)
+        let store = DiaryAppStore(
+            repository: repo,
+            adService: MockRewardedAdService(),
+            clock: { clock.now },
+            calendar: utcCal
+        )
+        try await bootstrapReady(store)
+
+        // Pin weekend order target on Sunday and trigger its material ad offer + open detail sheet.
+        store.setTarget(item: targetItem, orderID: weekend.id)
+        store.tapGenerator(targetItem.chain)
+        XCTAssertNotNil(store.activeAdOffer)
+        store.activeSheet = .orderDetail(weekend)
+
+        // Cross into Monday and refresh day -> open weekend sheet AND open weekend material ad must auto-close!
+        clock.now = mondayMorning
+        XCTAssertTrue(store.refreshDayIfNeeded())
+        XCTAssertNil(store.activeSheet)
+        XCTAssertNil(store.activeAdOffer)
+        XCTAssertNil(store.state.target)
+
+        // Attempting to pin the expired weekend order on Monday must be rejected.
+        store.setTarget(item: targetItem, orderID: weekend.id)
+        XCTAssertNil(store.state.target)
+    }
+
+    func testEarlierSkinPurchaseDoesNotOverwriteNewerPlayerSkinSelection() async throws {
+        var utcCal = Calendar(identifier: .gregorian)
+        utcCal.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        var noonComps = DateComponents()
+        noonComps.calendar = utcCal
+        noonComps.timeZone = utcCal.timeZone
+        noonComps.year = 2026
+        noonComps.month = 11
+        noonComps.day = 28
+        noonComps.hour = 12
+        let noon = try XCTUnwrap(noonComps.date)
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let diskRepo = DiarySaveRepository(directory: dir)
+
+        var initial = DiaryGameState.fresh(now: DayClock.epochMs(noon), calendar: utcCal)
+        initial.tutorialActive = false
+        initial.primaryCat.level = 8
+        initial.coins = 1_000
+        initial.home.skinsOwned = [.defaultSkin, .mint]
+        initial.home.activeSkin = .defaultSkin
+        try await diskRepo.save(initial, now: noon)
+
+        let gateRepo = GatedDiskSaveRepository(backing: diskRepo)
+        let store = DiaryAppStore(
+            repository: gateRepo,
+            adService: MockRewardedAdService(),
+            clock: { noon },
+            calendar: utcCal
+        )
+        try await bootstrapReady(store)
+        store.notices.dismiss()
+
+        // Pause save #1 while purchasing `.honey` (800 coins).
+        await gateRepo.pauseOnSaveNumber(1)
+        store.buyRoomSkin(.honey, quoted: 800)
+        try await waitUntil { await gateRepo.inFlightSaves == 1 }
+
+        // While `.honey` is saving, player explicitly chooses `.mint`!
+        store.equipRoomSkin(.mint)
+        XCTAssertEqual(store.state.home.activeSkin, .mint)
+        store.notices.dismiss()
+
+        // Unpause save -> `.honey` finishes buying, but player's newer `.mint` choice MUST NOT be overwritten!
+        await gateRepo.setPaused(false)
+        try await waitUntil { !store.isSaving && store.pendingSkinPurchases.isEmpty }
+
+        XCTAssertEqual(store.state.coins, 200)
+        XCTAssertTrue(store.state.home.skinsOwned.contains(.honey))
+        XCTAssertEqual(store.state.home.activeSkin, .mint, "Earlier skin purchase must not overwrite newer player selection")
+        XCTAssertEqual(store.notices.toast, GameStrings.format("shop.skinBoughtNotice", GameStrings.roomSkinName(.honey)))
+
+        let reloaded = try await diskRepo.loadOrCreate(now: noon, calendar: utcCal)
+        XCTAssertEqual(reloaded.coins, 200)
+        XCTAssertTrue(reloaded.home.skinsOwned.contains(.honey))
+        XCTAssertEqual(reloaded.home.activeSkin, .mint)
     }
 
     private func bootstrapReady(_ store: DiaryAppStore) async throws {

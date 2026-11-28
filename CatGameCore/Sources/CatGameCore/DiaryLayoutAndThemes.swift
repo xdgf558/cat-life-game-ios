@@ -271,6 +271,7 @@ public enum DiaryThemes {
         now: Int64,
         quoted: Int? = nil,
         committedPrice: Int? = nil,
+        equip: Bool = true,
         calendar: Calendar = .current,
         balance: DiaryBalance = .default
     ) -> RoomSkinActionResult {
@@ -290,7 +291,9 @@ public enum DiaryThemes {
         guard state.coins >= price else { return .notEnoughCoins }
         state.coins -= price
         state.home.skinsOwned.append(id)
-        state.home.activeSkin = id
+        if equip {
+            state.home.activeSkin = id
+        }
         return .applied(skin: id, price: price)
     }
 

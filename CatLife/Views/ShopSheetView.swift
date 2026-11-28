@@ -106,6 +106,7 @@ struct ShopSheetView: View {
         let basePrice = def.price ?? 0
         let price = store.currentFurniturePrice(def.id)
         let onSale = store.isFurnitureOnSale(def.id) && price < basePrice
+        let purchaseStatus = store.furniturePurchaseStatus(for: def.id)
         let canAfford = store.availableCoinsForPurchase >= price
         let isWish = store.state.home.wishlist == def.id
 
@@ -210,6 +211,23 @@ struct ShopSheetView: View {
                     .padding(.vertical, 8)
                     .padding(.horizontal, 6)
                     .background(RoomTheme.track, in: Capsule())
+            } else if purchaseStatus == .saving {
+                Text(GameStrings.text("common.saving"))
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8.5)
+                    .background(RoomTheme.secondary, in: Capsule())
+            } else if purchaseStatus == .retrySave {
+                Button(GameStrings.text("save.retry")) {
+                    store.retrySaveNow()
+                }
+                .font(.system(size: 12, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8.5)
+                .background(RoomTheme.coral, in: Capsule())
+                .buttonStyle(CraftIconBadgeButtonStyle())
             } else {
                 Button {
                     store.buyFurniture(def.id, quoted: price)

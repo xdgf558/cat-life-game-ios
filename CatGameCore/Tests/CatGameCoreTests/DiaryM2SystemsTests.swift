@@ -475,4 +475,101 @@ final class DiaryM2SystemsTests: XCTestCase {
         XCTAssertEqual(normal.finalMood, 85.0, accuracy: 0.0001)
         XCTAssertEqual(normal.arrival.bonusMood, 5.0, accuracy: 0.0001)
     }
+
+    func testDamagedV2SaveMissingHomeOrOrderFieldsRecoversBackup() async throws {
+        let t0 = makeUTCDate(year: 2026, month: 11, day: 28, hour: 12)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let repo = DiarySaveRepository(directory: dir)
+
+        var good = DiaryGameState.fresh(now: t0, calendar: utcCal)
+        good.tutorialActive = false
+        good.coins = 650
+        good.home.skinsOwned = [.defaultSkin, .honey]
+        good.home.activeSkin = .honey
+        good.home.treasures[.ginkgo] = TreasureRecord(count: 2, firstAt: t0, lastAt: t0)
+        try await repo.save(good, now: DayClock.date(fromEpochMs: t0))
+        // Second save > 5 min later rotates intact `good` snapshot into backupURL.
+        var newer = good
+        newer.coins = 700
+        try await repo.save(newer, now: DayClock.date(fromEpochMs: t0 + 600_000))
+
+        let validData = try Data(contentsOf: repo.saveURL)
+        let validJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: validData) as? [String: Any])
+
+        // Removing OR nulling ANY required v2 key in home or orders must fail decoding and recover backup!
+        let homeCases: [(String, Bool)] = [
+            ("treasures", false), ("treasures", true),
+            ("skinsOwned", false), ("activeSkin", false),
+            ("outingsToday", false), ("outingsDay", false), ("recallUsedToday", false)
+        ]
+        for (key, setNull) in homeCases {
+            var broken = validJSON
+            var home = try XCTUnwrap(broken["home"] as? [String: Any])
+            if setNull { home[key] = NSNull() } else { home.removeValue(forKey: key) }
+            broken["home"] = home
+            try JSONSerialization.data(withJSONObject: broken).write(to: repo.saveURL, options: .atomic)
+
+            let recovered = try await repo.loadOrCreate(now: DayClock.date(fromEpochMs: t0 + 700_000), calendar: utcCal)
+            let disp = await repo.lastLoadDisposition
+            XCTAssertEqual(disp, .recoveredBackup, "Expected backup recovery when home.\(key) is \(setNull ? "null" : "missing")")
+            XCTAssertEqual(recovered.coins, 650)
+            XCTAssertEqual(recovered.home.activeSkin, .honey)
+            XCTAssertEqual(DiaryOuting.treasureTimes(recovered, id: .ginkgo), 2)
+        }
+
+        // Null or missing `orders.storyBackpay` in a v2 save must also trigger backup recovery!
+        var brokenOrdersRoot = validJSON
+        var brokenOrders = try XCTUnwrap(brokenOrdersRoot["orders"] as? [String: Any])
+        brokenOrders["storyBackpay"] = NSNull()
+        brokenOrdersRoot["orders"] = brokenOrders
+        try JSONSerialization.data(withJSONObject: brokenOrdersRoot).write(to: repo.saveURL, options: .atomic)
+
+        let recoveredOrders = try await repo.loadOrCreate(now: DayClock.date(fromEpochMs: t0 + 800_000), calendar: utcCal)
+        let dispOrders = await repo.lastLoadDisposition
+        XCTAssertEqual(dispOrders, .recoveredBackup)
+        XCTAssertEqual(recoveredOrders.coins, 650)
+    }
+
+    func testWeekendOrderRetryOnNextWeekendPreservesBothWeeks() throws {
+        // Week 1 Sunday: 2026-11-29 (weekKey 20261123) -> Week 2 Saturday: 2026-12-05 (weekKey 20261130).
+        let week1Sun = makeUTCDate(year: 2026, month: 11, day: 29, hour: 23, minute: 59)
+        let week2Sat = makeUTCDate(year: 2026, month: 12, day: 5, hour: 12, minute: 0)
+
+        var state = DiaryGameState.fresh(now: week1Sun, calendar: utcCal)
+        state.tutorialActive = false
+        state.primaryCat.level = 7
+        DiaryOrders.syncWeekendOrder(&state)
+        let week1Order = try XCTUnwrap(state.orders.weekendOrder)
+        XCTAssertEqual(week1Order.id, "w20261123")
+        for (idx, item) in week1Order.items.enumerated() {
+            state.board.cells[idx] = item
+        }
+
+        // Advance engine into Week 2 Saturday so Week 2's order (`w20261130`) is already active!
+        let engine = DiaryGameEngine(state: state, calendar: utcCal)
+        _ = engine.refreshDay(now: week2Sat)
+        let week2Order = try XCTUnwrap(engine.state.orders.weekendOrder)
+        XCTAssertEqual(week2Order.id, "w20261130")
+
+        // Retrying Week 1's timely submitted order via fallbackOrder must succeed WITHOUT wiping Week 2's order!
+        let res = engine.deliverWeekendOrder(
+            expectedID: week1Order.id,
+            fallbackOrder: week1Order,
+            preferredCells: Array(week1Order.items.indices),
+            now: week2Sat
+        )
+        guard case .delivered(let delivered, let wage, _, _) = res.value else {
+            return XCTFail("Expected Week 1 weekend order retry to succeed on Week 2")
+        }
+        XCTAssertEqual(delivered.id, "w20261123")
+        XCTAssertEqual(engine.state.coins, wage)
+        XCTAssertEqual(engine.state.orders.weekendDoneWeek, 20_261_123)
+        XCTAssertEqual(engine.state.orders.weekendOrder?.id, "w20261130", "Week 2's new weekend order must stay active!")
+
+        // Replaying Week 1 a second time must be rejected.
+        let replay = engine.deliverWeekendOrder(expectedID: week1Order.id, fallbackOrder: week1Order, now: week2Sat)
+        XCTAssertEqual(replay.value, .notFound)
+    }
 }
