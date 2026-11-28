@@ -176,7 +176,7 @@ final class DiaryAppStore {
     @ObservationIgnored private var saveRetry = SaveRetryState()
     private var saveNeedsWrite = false
     @ObservationIgnored private var pendingAdCompletions: [PendingAdCompletion] = []
-    @ObservationIgnored private var pendingSeenDayMilestones: (milestone: MilestoneID, seen: [MilestoneID])?
+    @ObservationIgnored private var pendingSeenDayMilestones: (createdAt: Int64, milestone: MilestoneID, seen: [MilestoneID])?
     @ObservationIgnored private var expiredWishGuardGoal: WishGoal?
     @ObservationIgnored private var stateGeneration = 0
     @ObservationIgnored private var skinSelectionRevision = 0
@@ -1101,17 +1101,27 @@ final class DiaryAppStore {
 
     func markMilestonePresented(_ id: MilestoneID) {
         guard canPresentDayMilestone,
-              milestoneModal == id,
-              let pending = pendingSeenDayMilestones,
-              pending.milestone == id else { return }
-        pendingSeenDayMilestones = nil
-        let key = seenDayMilestonesStorageKey(for: state.createdAt)
-        userDefaults.set(pending.seen.map(\.rawValue), forKey: key)
+              !state.tutorialActive,
+              milestoneModal == id else { return }
+        if let pending = pendingSeenDayMilestones {
+            guard pending.createdAt == state.createdAt, pending.milestone == id else { return }
+            pendingSeenDayMilestones = nil
+            let key = seenDayMilestonesStorageKey(for: state.createdAt)
+            userDefaults.set(pending.seen.map(\.rawValue), forKey: key)
+        } else if id.isDayMilestone {
+            recordSingleDayMilestoneSeen(id)
+        }
     }
 
     func dismissMilestoneModal() {
         if let current = milestoneModal {
-            markMilestonePresented(current)
+            if let pending = pendingSeenDayMilestones,
+               pending.createdAt == state.createdAt,
+               pending.milestone == current {
+                markMilestonePresented(current)
+            } else if current.isDayMilestone, !state.tutorialActive {
+                recordSingleDayMilestoneSeen(current)
+            }
         }
         milestoneModal = nil
     }
@@ -1243,8 +1253,10 @@ final class DiaryAppStore {
         selectedCatID = .primary
         activeScreen = .home
         activeRoom = .livingroom
-        activeSheet = nil
+        // Sync fresh Day-1 state BEFORE clearing `activeSheet` so `activeSheet.didSet`
+        // cannot inspect the previous diary's elapsed days and re-queue an old milestone.
         syncStateAndApply(events: out.events, save: true)
+        activeSheet = nil
         notices.show(GameStrings.text("settings.resetDone"))
     }
 
@@ -1252,6 +1264,18 @@ final class DiaryAppStore {
 
     private func seenDayMilestonesStorageKey(for createdAt: Int64) -> String {
         "CatLife.seenDayMilestones.\(createdAt)"
+    }
+
+    private func recordSingleDayMilestoneSeen(_ id: MilestoneID) {
+        guard id.isDayMilestone else { return }
+        let reached = DiaryMilestones.reached(state, now: nowMs, calendar: calendar, balance: engine.balance)
+        guard reached.contains(id) else { return }
+        let key = seenDayMilestonesStorageKey(for: state.createdAt)
+        let savedRaw = userDefaults.stringArray(forKey: key) ?? []
+        let saved = savedRaw.compactMap(MilestoneID.init(rawValue:))
+        guard !saved.contains(id) else { return }
+        let merged = MilestoneID.dayMilestones.map(\.id).filter { saved.contains($0) || $0 == id }
+        userDefaults.set(merged.map(\.rawValue), forKey: key)
     }
 
     private func checkDayMilestoneIfNeeded() {
@@ -1267,7 +1291,7 @@ final class DiaryAppStore {
             balance: engine.balance
         )
         guard let show = res.show else { return }
-        pendingSeenDayMilestones = (show, res.seen)
+        pendingSeenDayMilestones = (state.createdAt, show, res.seen)
         milestoneModal = show
     }
 
