@@ -90,13 +90,13 @@ final class DiaryAppStoreTests: XCTestCase {
         }
     }
 
-    func testAppReleaseIncludesBuild71AndPreservesHistoricalBuilds() {
-        XCTAssertEqual(AppVersion.current.version, "2.1.0")
-        XCTAssertEqual(AppVersion.current.buildNumber, 71)
+    func testAppReleaseIncludesBuild72AndPreservesHistoricalBuilds() {
+        XCTAssertEqual(AppVersion.current.version, "2.2.0")
+        XCTAssertEqual(AppVersion.current.buildNumber, 72)
         let builds = AppRelease.recent.map(\.build)
+        XCTAssertTrue(builds.contains(72))
         XCTAssertTrue(builds.contains(71))
         XCTAssertTrue(builds.contains(70))
-        XCTAssertTrue(builds.contains(69))
     }
 
     func testRelaunchAtTutorialFinishRequeuesTutorialPhotoModal() async throws {

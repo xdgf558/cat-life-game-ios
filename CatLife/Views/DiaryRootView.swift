@@ -4,10 +4,15 @@ import CatGameCore
 struct DiaryRootView: View {
     @Bindable var store: DiaryAppStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The game starts only after the player taps the cover button.
+    @State private var hasEntered = false
+    /// Give the player a moment to see their room before queued photos / milestones appear.
+    @State private var overlaysReady = false
 
     var body: some View {
         ZStack {
-            if store.isLoaded {
+            if store.isLoaded && hasEntered {
                 Group {
                     switch store.activeScreen {
                     case .home:
@@ -17,46 +22,21 @@ struct DiaryRootView: View {
                     }
                 }
                 .transition(.opacity)
-            } else if let error = store.loadError {
-                VStack(spacing: 18) {
-                    Image("cat_hungry")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 120, height: 120)
-                    Text(GameStrings.text("app.title"))
-                        .font(.system(size: 26, weight: .heavy, design: .rounded))
-                        .foregroundStyle(RoomTheme.ink)
-                    Text(error)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(RoomTheme.secondary)
-                        .multilineTextAlignment(.center)
-                    Button(GameStrings.text("common.confirm")) {
-                        Task { await store.bootstrap() }
-                    }
-                    .buttonStyle(WarmButtonStyle())
-                }
-                .padding(32)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(RoomTheme.cream.ignoresSafeArea())
             } else {
-                VStack(spacing: 14) {
-                    Image("cat_idle")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 144, height: 144)
-                        .shadow(color: RoomTheme.ink.opacity(0.14), radius: 10, y: 6)
-                    Text(GameStrings.text("app.title"))
-                        .font(.system(size: 24, weight: .heavy, design: .rounded))
-                        .foregroundStyle(RoomTheme.ink)
-                    ProgressView()
-                        .tint(RoomTheme.coral)
+                CoverView(store: store) {
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.35)) {
+                        hasEntered = true
+                    }
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(800))
+                        overlaysReady = true
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(RoomTheme.cream.ignoresSafeArea())
+                .transition(.opacity)
             }
 
             // Unsaved progress warning banner with manual retry
-            if store.isLoaded, let saveError = store.saveError {
+            if store.isLoaded, hasEntered, let saveError = store.saveError {
                 VStack {
                     HStack(spacing: 10) {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -104,7 +84,7 @@ struct DiaryRootView: View {
             }
 
             // Warm hand-crafted Toast strip
-            if let toast = store.notices.toast {
+            if hasEntered, let toast = store.notices.toast {
                 VStack {
                     Spacer()
                     HStack(spacing: 8) {
@@ -128,7 +108,9 @@ struct DiaryRootView: View {
             }
 
             // Story, Keepsake & Monetization Overlays (highest priority first)
-            if store.showingAdoptionModal {
+            if !(hasEntered && overlaysReady) {
+                EmptyView()
+            } else if store.showingAdoptionModal {
                 AdoptionOverlayView {
                     store.dismissAdoptionModal()
                 }
@@ -177,7 +159,7 @@ struct DiaryRootView: View {
                 .zIndex(25)
             }
 
-            if let slot = store.playingMockAdSlot {
+            if hasEntered, let slot = store.playingMockAdSlot {
                 MockAdPlaybackOverlayView(slot: slot) { result in
                     store.finishMockAdPlayback(with: result)
                 }
@@ -186,6 +168,7 @@ struct DiaryRootView: View {
             }
         }
         .animation(.easeOut(duration: 0.22), value: store.activeScreen)
+        .animation(.easeOut(duration: 0.3), value: overlaysReady)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: store.saveError)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: store.notices.toast)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: store.currentPhotoModalID)

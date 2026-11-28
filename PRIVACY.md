@@ -1,8 +1,8 @@
-# 打工养猫日记：iPhone 和 iPad 版隐私政策
+# 养猫日记本：iPhone 和 iPad 版隐私政策
 
 生效日期：2026 年 11 月 14 日
 
-本政策适用于 Station Cat 通过 App Store 提供的《打工养猫日记》iPhone 和 iPad 版。隐私和支持联系邮箱：[brodstem@protonmail.com](mailto:brodstem@protonmail.com)。
+本政策适用于 Station Cat 通过 App Store 提供的《养猫日记本》iPhone 和 iPad 版。隐私和支持联系邮箱：[brodstem@protonmail.com](mailto:brodstem@protonmail.com)。
 
 ## 本机数据
 
@@ -24,11 +24,11 @@
 
 ---
 
-# 打工養貓日記：iPhone 和 iPad 版隱私政策
+# 養貓日記本：iPhone 和 iPad 版隱私政策
 
 生效日期：2026 年 11 月 14 日
 
-本政策適用於 Station Cat 透過 App Store 提供的《打工養貓日記》iPhone 和 iPad 版。隱私及支援聯絡信箱：[brodstem@protonmail.com](mailto:brodstem@protonmail.com)。
+本政策適用於 Station Cat 透過 App Store 提供的《養貓日記本》iPhone 和 iPad 版。隱私及支援聯絡信箱：[brodstem@protonmail.com](mailto:brodstem@protonmail.com)。
 
 ## 本機資料
 
@@ -50,11 +50,11 @@
 
 ---
 
-# Cat Life Diary for iPhone and iPad: Privacy Policy
+# Cat Diary for iPhone and iPad: Privacy Policy
 
 Effective date: November 14, 2026
 
-This policy applies to Cat Life Diary for iPhone and iPad, provided by Station Cat through the App Store. For privacy or support questions, contact [brodstem@protonmail.com](mailto:brodstem@protonmail.com).
+This policy applies to Cat Diary for iPhone and iPad, provided by Station Cat through the App Store. For privacy or support questions, contact [brodstem@protonmail.com](mailto:brodstem@protonmail.com).
 
 ## Data on your device
 

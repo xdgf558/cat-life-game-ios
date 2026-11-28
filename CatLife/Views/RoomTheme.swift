@@ -3,20 +3,23 @@ import UIKit
 import CatGameCore
 
 // MARK: - Warm Watercolor Storybook Palette
+// Core tokens match the WeChat mini-game `COLORS` (ink #684A37, inkSoft #9A7A62,
+// paper #FFFAF2, cream #F6EAD8, orange #E8894A / #C86A2E) so both games share one look.
+// Orange (`coral`) is the only primary-button color; mint is reserved for "done / deliverable" states.
 
 enum RoomTheme {
-    static let cream = Color(red: 0.985, green: 0.955, blue: 0.90)
-    static let paper = Color(red: 1.0, green: 0.985, blue: 0.955)
+    static let cream = Color(red: 0.965, green: 0.918, blue: 0.847)
+    static let paper = Color(red: 1.0, green: 0.980, blue: 0.949)
     static let warmIvory = Color(red: 0.995, green: 0.972, blue: 0.925)
     static let mint = Color(red: 0.25, green: 0.66, blue: 0.52)
     static let darkMint = Color(red: 0.13, green: 0.46, blue: 0.35)
     static let paleMint = Color(red: 0.88, green: 0.95, blue: 0.89)
-    static let ink = Color(red: 0.33, green: 0.22, blue: 0.14)
-    static let secondary = Color(red: 0.54, green: 0.42, blue: 0.31)
+    static let ink = Color(red: 0.408, green: 0.290, blue: 0.216)
+    static let secondary = Color(red: 0.604, green: 0.478, blue: 0.384)
     static let wood = Color(red: 0.88, green: 0.74, blue: 0.56)
     static let woodDeep = Color(red: 0.71, green: 0.54, blue: 0.36)
-    static let coral = Color(red: 0.90, green: 0.48, blue: 0.29)
-    static let coralDeep = Color(red: 0.73, green: 0.34, blue: 0.18)
+    static let coral = Color(red: 0.910, green: 0.537, blue: 0.290)
+    static let coralDeep = Color(red: 0.784, green: 0.416, blue: 0.180)
     static let paleCoral = Color(red: 0.99, green: 0.91, blue: 0.84)
     static let coralBorder = Color(red: 0.93, green: 0.72, blue: 0.57)
     static let rewardPaper = Color(red: 1.0, green: 0.965, blue: 0.895)
@@ -58,10 +61,11 @@ enum SceneCanvasLayout {
         return CGRect(x: (size.width - w) / 2, y: size.height - h, width: w, height: h)
     }
 
-    /// Guarantees space above the painted workbench mat for Top HUD + Order Receipts on every screen.
-    static func workshopFrame(in size: CGSize, safeTop: CGFloat) -> CGRect {
+    /// Guarantees space above the painted workbench mat for the top HUD + order header on every screen.
+    /// `headerHeight` grows on weekends when the gold commission strip sits above the receipts.
+    static func workshopFrame(in size: CGSize, safeTop: CGFloat, headerHeight: CGFloat = 64) -> CGRect {
         let base = sceneFrame(in: size, maxCropTop: 0.28)
-        let minMatTop = safeTop + 132
+        let minMatTop = safeTop + 50 + headerHeight + 8
         if base.minY + base.height * workshopMat.top >= minMatTop {
             return base
         }
@@ -109,19 +113,48 @@ struct WarmGlassBackground: View {
     }
 }
 
-/// 9-slice hand-painted watercolor parchment panel using bundled `ui_panel`.
+/// Paper card used behind every celebration overlay.
+/// Drawn instead of 9-slicing `ui_panel`: that art has wide transparent margins, so text
+/// laid out against the frame visibly overflowed the painted paper (milestone card bug).
 struct WatercolorPanelBackground: View {
     var body: some View {
-        if UIImage(named: "ui_panel") != nil {
-            Image("ui_panel")
-                .resizable(capInsets: EdgeInsets(top: 56, leading: 56, bottom: 56, trailing: 56), resizingMode: .stretch)
-                .shadow(color: RoomTheme.ink.opacity(0.24), radius: 18, y: 10)
-        } else {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(RoomTheme.paper)
-                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(RoomTheme.woodDeep, lineWidth: 2))
-                .shadow(color: RoomTheme.ink.opacity(0.22), radius: 16, y: 8)
-        }
+        RoundedRectangle(cornerRadius: 26, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [RoomTheme.paper, RoomTheme.rewardPaper],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .strokeBorder(RoomTheme.wood, lineWidth: 1.6)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(RoomTheme.wood.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                    .padding(7)
+            )
+            .shadow(color: RoomTheme.ink.opacity(0.24), radius: 18, y: 10)
+    }
+}
+
+/// Plain paper surface for lists, settings rows and sheet sections.
+struct PaperCard<Content: View>: View {
+    var cornerRadius: CGFloat = 18
+    var padding: CGFloat = 14
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .padding(padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoomTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(RoomTheme.wood.opacity(0.55), lineWidth: 1)
+            )
+            .shadow(color: RoomTheme.ink.opacity(0.06), radius: 0, y: 2)
     }
 }
 

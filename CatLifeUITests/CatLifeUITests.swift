@@ -6,6 +6,12 @@ final class CatLifeUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
+        // Cover screen: the game only starts after "open the diary".
+        let enter = app.buttons["coverEnterButton"]
+        XCTAssertTrue(enter.waitForExistence(timeout: 10))
+        attachScreenshot(named: "00-Cover")
+        enter.tap()
+
         // Dismiss any queued photo reveal modal if an existing save triggered one
         let keepPhoto = app.buttons["photoKeepButton"]
         for _ in 0..<4 where keepPhoto.waitForExistence(timeout: 1.2) {

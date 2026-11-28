@@ -330,7 +330,7 @@ struct CustomerStoryOverlayView: View {
                 }
 
                 Button(GameStrings.text("milestone.keep"), action: onKeep)
-                    .buttonStyle(WarmButtonStyle(fill: RoomTheme.mint, shadowColor: RoomTheme.darkMint))
+                    .buttonStyle(WarmButtonStyle())
             }
             .padding(24)
             .background(WatercolorPanelBackground())
