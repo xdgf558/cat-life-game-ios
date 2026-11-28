@@ -326,11 +326,9 @@ struct WorkshopView: View {
             )
         }
         .buttonStyle(CraftIconBadgeButtonStyle())
-        .accessibilityLabel(
-            GameStrings.customerName(order.customer) + " · "
-                + order.items.map { GameStrings.itemName($0) }.joined(separator: "、")
-                + " · " + GameStrings.format("common.coinsFormat", order.wage)
-        )
+        .disabled(status == .saving)
+        .accessibilityLabel(Self.orderAccessibilityLabel(for: order, status: status, isWeekend: false))
+        .accessibilityHint(Self.orderAccessibilityHint(for: status))
     }
 
     /// Weekend neighborhood commission: a warm gold strip above the receipts (WeChat `WEEKEND_STRIP`).
@@ -362,13 +360,42 @@ struct WorkshopView: View {
             .shadow(color: RoomTheme.ink.opacity(0.12), radius: 3, y: 2)
         }
         .buttonStyle(CraftIconBadgeButtonStyle())
-        .accessibilityLabel(
-            GameStrings.text("weekend.badge") + " · "
-                + GameStrings.customerName(order.customer) + " · "
-                + order.items.map { GameStrings.itemName($0) }.joined(separator: "、")
-                + " · " + GameStrings.format("common.coinsFormat", order.wage)
-        )
+        .disabled(status == .saving)
+        .accessibilityLabel(Self.orderAccessibilityLabel(for: order, status: status, isWeekend: true))
+        .accessibilityHint(Self.orderAccessibilityHint(for: status))
         .accessibilityIdentifier("weekendOrderStrip")
+    }
+
+    static func orderAccessibilityLabel(
+        for order: CustomerOrder,
+        status: OrderCardStatus,
+        isWeekend: Bool
+    ) -> String {
+        let itemSeparator = GameLocalization.shared.language == .english ? ", " : "、"
+        let statusKey: String = switch status {
+        case .deliverable: "order.a11y.status.deliverable"
+        case .incomplete: "order.a11y.status.incomplete"
+        case .saving: "order.a11y.status.saving"
+        case .retrySave: "order.a11y.status.retrySave"
+        }
+        var parts: [String] = []
+        if isWeekend {
+            parts.append(GameStrings.text("weekend.badge"))
+        }
+        parts.append(GameStrings.customerName(order.customer))
+        parts.append(order.items.map { GameStrings.itemName($0) }.joined(separator: itemSeparator))
+        parts.append(GameStrings.format("common.coinsFormat", order.wage))
+        parts.append(GameStrings.text(statusKey))
+        return parts.joined(separator: " · ")
+    }
+
+    static func orderAccessibilityHint(for status: OrderCardStatus) -> String {
+        switch status {
+        case .deliverable: GameStrings.text("order.a11y.hint.deliverable")
+        case .incomplete: GameStrings.text("order.a11y.hint.incomplete")
+        case .saving: GameStrings.text("order.a11y.hint.saving")
+        case .retrySave: GameStrings.text("order.a11y.hint.retrySave")
+        }
     }
 
     private func selectedItemInspector(index: Int, item: MergeItem) -> some View {

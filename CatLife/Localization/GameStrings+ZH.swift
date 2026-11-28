@@ -118,6 +118,14 @@ extension GameStrings {
         "order.customerProgress": "好感进度 %d / %d（满额送专属家具）",
         "order.deliveredCoins": "订单完成！工资 +%d 金币",
         "order.customerGift": "收到顾客回礼：%@",
+        "order.a11y.status.deliverable": "可交货",
+        "order.a11y.status.incomplete": "材料不足",
+        "order.a11y.status.saving": "正在保存交货",
+        "order.a11y.status.retrySave": "交货未保存，待重试",
+        "order.a11y.hint.deliverable": "双击立即交货并领取工资",
+        "order.a11y.hint.incomplete": "双击查看订单详情",
+        "order.a11y.hint.saving": "正在保存这笔交货，请稍候",
+        "order.a11y.hint.retrySave": "双击立即重试保存这笔交货",
 
         // Shop
         "shop.title": "家具店",

@@ -3,6 +3,7 @@ import CatGameCore
 
 protocol GameSaveRepository: Sendable {
     var lastLoadDisposition: SaveLoadDisposition { get async }
+    var lastSavedAt: Date? { get async }
     func loadOrCreate(now: Date) async throws -> DiaryGameState
     func save(_ state: DiaryGameState, now: Date) async throws
 }

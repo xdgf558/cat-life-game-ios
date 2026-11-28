@@ -39,7 +39,7 @@ struct SettingsSheetView: View {
                     group(GameStrings.text("settings.group.save")) {
                         navRow(.save, symbol: "externaldrive.fill", tint: RoomTheme.woodDeep,
                                title: GameStrings.text("settings.row.saveLocal"),
-                               value: store.saveError == nil ? GameStrings.text("settings.save.ok") : GameStrings.text("settings.save.pending"),
+                               value: saveStatusRowValue,
                                id: "settingsSaveRow")
                         Button {
                             confirmReset = true
@@ -210,31 +210,38 @@ struct SettingsSheetView: View {
                     }
                     PaperCard {
                         VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Image(systemName: store.saveError == nil ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                                    .foregroundStyle(store.saveError == nil ? RoomTheme.mint : RoomTheme.coralDeep)
-                                Text(store.saveError ?? GameStrings.text("settings.save.ok"))
-                                    .font(.system(size: 14, weight: .heavy, design: .rounded))
-                                    .foregroundStyle(RoomTheme.ink)
-                                    .fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: 8) {
+                                switch store.saveHealth {
+                                case .saved:
+                                    Image(systemName: "checkmark.seal.fill")
+                                        .foregroundStyle(RoomTheme.mint)
+                                    Text(GameStrings.text("settings.save.ok"))
+                                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                                        .foregroundStyle(RoomTheme.ink)
+                                case .saving:
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .tint(RoomTheme.coralDeep)
+                                    Text(GameStrings.text("common.saving"))
+                                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                                        .foregroundStyle(RoomTheme.ink)
+                                case .failed(let message):
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(RoomTheme.coralDeep)
+                                    Text(message)
+                                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                                        .foregroundStyle(RoomTheme.ink)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
+                            .accessibilityIdentifier("settingsSaveHealthStatus")
                             Text(GameStrings.format("settings.save.lastSaved", lastSavedText))
                                 .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                                 .foregroundStyle(RoomTheme.secondary)
-                            if store.saveError != nil {
-                                Button {
+                            if case .failed = store.saveHealth {
+                                Button(GameStrings.text("save.retry")) {
                                     store.retrySaveNow()
-                                } label: {
-                                    if store.isSaving {
-                                        ProgressView()
-                                            .controlSize(.small)
-                                            .tint(.white)
-                                            .frame(minWidth: 72)
-                                    } else {
-                                        Text(GameStrings.text("save.retry"))
-                                    }
                                 }
-                                .disabled(store.isSaving)
                                 .font(.system(size: 14, weight: .heavy, design: .rounded))
                                 .buttonStyle(WarmButtonStyle())
                                 .padding(.top, 4)
@@ -358,6 +365,14 @@ struct SettingsSheetView: View {
         case .simplifiedChinese: GameStrings.text("settings.langZH")
         case .traditionalChinese: GameStrings.text("settings.langZHT")
         case .english: GameStrings.text("settings.langEN")
+        }
+    }
+
+    private var saveStatusRowValue: String {
+        switch store.saveHealth {
+        case .saved: GameStrings.text("settings.save.ok")
+        case .saving: GameStrings.text("common.saving")
+        case .failed: GameStrings.text("settings.save.pending")
         }
     }
 

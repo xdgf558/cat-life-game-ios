@@ -90,6 +90,12 @@ enum PurchaseButtonStatus: Equatable {
     case available
 }
 
+enum SaveHealth: Equatable {
+    case saved
+    case saving
+    case failed(String)
+}
+
 private struct PendingAdCompletion: Equatable {
     let claimID: String
     let offer: AdOffer
@@ -110,7 +116,16 @@ final class DiaryAppStore {
 
     var activeScreen: AppScreen = .home
     var activeRoom: RoomID = .livingroom
-    var activeSheet: ActiveSheet?
+    var activeSheet: ActiveSheet? {
+        didSet {
+            if activeSheet != nil, let pending = pendingSeenDayMilestones, milestoneModal == pending.milestone {
+                milestoneModal = nil
+                pendingSeenDayMilestones = nil
+            } else if activeSheet == nil {
+                checkDayMilestoneIfNeeded()
+            }
+        }
+    }
     var selectedCatID: CatID = .primary
     var isDecorating = false
 
@@ -159,8 +174,9 @@ final class DiaryAppStore {
     @ObservationIgnored private let saveRetryDelays: [Duration]
     @ObservationIgnored private var engine: DiaryGameEngine
     @ObservationIgnored private var saveRetry = SaveRetryState()
-    @ObservationIgnored private var saveNeedsWrite = false
+    private var saveNeedsWrite = false
     @ObservationIgnored private var pendingAdCompletions: [PendingAdCompletion] = []
+    @ObservationIgnored private var pendingSeenDayMilestones: (milestone: MilestoneID, seen: [MilestoneID])?
     @ObservationIgnored private var expiredWishGuardGoal: WishGoal?
     @ObservationIgnored private var stateGeneration = 0
     @ObservationIgnored private var skinSelectionRevision = 0
@@ -183,6 +199,37 @@ final class DiaryAppStore {
     var currentPhotoModalID: String? { photoQueue.first }
     var currentLevelUpModal: LevelUpModalItem? { photoQueue.isEmpty ? levelUpQueue.first : nil }
     var currentStoryModal: StoryUnlock? { storyQueue.first }
+
+    var saveHealth: SaveHealth {
+        if isSaving {
+            return .saving
+        }
+        if let saveError {
+            return .failed(saveError)
+        }
+        if saveNeedsWrite
+            || !pendingAdCompletions.isEmpty
+            || !pendingOrderDeliveries.isEmpty
+            || !pendingSkinPurchases.isEmpty
+            || !pendingFurniturePurchases.isEmpty {
+            return .saving
+        }
+        return .saved
+    }
+
+    var canPresentDayMilestone: Bool {
+        isLoaded
+            && hasEntered
+            && overlaysReady
+            && isForeground
+            && activeScreen == .home
+            && !isDecorating
+            && activeSheet == nil
+            && !showingAdoptionModal
+            && arrivalModal == nil
+            && currentStoryModal == nil
+            && playingMockAdSlot == nil
+    }
 
     // AdOfferOverlayView is hidden behind cover, overlay reveal delay, sheets, decorate mode, or higher-priority modals in DiaryRootView.
     var canPresentAdOfferOverlay: Bool {
@@ -392,9 +439,10 @@ final class DiaryAppStore {
         do {
             let loadNow = clock()
             let loaded = try await repository.loadOrCreate(now: loadNow)
+            let persistedAt = await repository.lastSavedAt ?? DayClock.date(fromEpochMs: loaded.updatedAt)
             engine = DiaryGameEngine(state: loaded, adConfig: AdRemoteConfig(adEnabled: mockAdsEnabled), calendar: calendar)
             state = loaded
-            lastPersistedAt = DayClock.date(fromEpochMs: loaded.updatedAt)
+            lastPersistedAt = persistedAt
             applyLanguagePreference()
             isLoaded = true
             loadError = nil
@@ -478,6 +526,10 @@ final class DiaryAppStore {
         let wasForeground = isForeground
         isForeground = foreground
         if !foreground, isLoaded, hasEntered {
+            if let pending = pendingSeenDayMilestones, milestoneModal == pending.milestone {
+                milestoneModal = nil
+                pendingSeenDayMilestones = nil
+            }
             if activeScreen == .home {
                 let out = engine.leaveHome(now: nowMs)
                 syncStateAndApply(events: out.events, save: true)
@@ -816,6 +868,7 @@ final class DiaryAppStore {
 
     func dismissArrivalModal() {
         arrivalModal = nil
+        checkDayMilestoneIfNeeded()
     }
 
     func packBasket(source: BasketSource, index: Int) {
@@ -882,6 +935,7 @@ final class DiaryAppStore {
 
     func dismissAdoptionModal() {
         showingAdoptionModal = false
+        checkDayMilestoneIfNeeded()
     }
 
     func enterDecorateMode() {
@@ -896,6 +950,7 @@ final class DiaryAppStore {
     func exitDecorateMode() {
         isDecorating = false
         audio.play(.tap, userInitiated: true)
+        checkDayMilestoneIfNeeded()
     }
 
     @discardableResult
@@ -1035,14 +1090,29 @@ final class DiaryAppStore {
     func dismissCurrentStoryModal() {
         guard !storyQueue.isEmpty else { return }
         storyQueue.removeFirst()
+        checkDayMilestoneIfNeeded()
     }
 
     func showMilestone(_ id: MilestoneID) {
         if hasEntered { overlaysReady = true }
+        pendingSeenDayMilestones = nil
         milestoneModal = id
     }
 
+    func markMilestonePresented(_ id: MilestoneID) {
+        guard canPresentDayMilestone,
+              milestoneModal == id,
+              let pending = pendingSeenDayMilestones,
+              pending.milestone == id else { return }
+        pendingSeenDayMilestones = nil
+        let key = seenDayMilestonesStorageKey(for: state.createdAt)
+        userDefaults.set(pending.seen.map(\.rawValue), forKey: key)
+    }
+
     func dismissMilestoneModal() {
+        if let current = milestoneModal {
+            markMilestonePresented(current)
+        }
         milestoneModal = nil
     }
 
@@ -1108,6 +1178,7 @@ final class DiaryAppStore {
             guard self.stateGeneration == generation else { return }
             self.playingMockAdSlot = nil
             self.audio.setAdPaused(false)
+            self.checkDayMilestoneIfNeeded()
             if result == .ended {
                 self.pendingAdCompletions.append(
                     PendingAdCompletion(claimID: claimID, offer: offer, result: .ended)
@@ -1163,6 +1234,7 @@ final class DiaryAppStore {
         storyQueue.removeAll()
         arrivalModal = nil
         showingAdoptionModal = false
+        pendingSeenDayMilestones = nil
         milestoneModal = nil
         activeAdOffer = nil
         offlineNoteID = nil
@@ -1183,7 +1255,7 @@ final class DiaryAppStore {
     }
 
     private func checkDayMilestoneIfNeeded() {
-        guard hasEntered, overlaysReady, isForeground, !state.tutorialActive, milestoneModal == nil else { return }
+        guard canPresentDayMilestone, !state.tutorialActive, milestoneModal == nil else { return }
         let key = seenDayMilestonesStorageKey(for: state.createdAt)
         let savedRaw = userDefaults.stringArray(forKey: key) ?? []
         let saved = savedRaw.compactMap(MilestoneID.init(rawValue:))
@@ -1194,12 +1266,9 @@ final class DiaryAppStore {
             calendar: calendar,
             balance: engine.balance
         )
-        if res.seen != saved {
-            userDefaults.set(res.seen.map(\.rawValue), forKey: key)
-        }
-        if let show = res.show {
-            milestoneModal = show
-        }
+        guard let show = res.show else { return }
+        pendingSeenDayMilestones = (show, res.seen)
+        milestoneModal = show
     }
 
     private func syncStateAndApply(events: [DiaryGameEvent], save: Bool) {
@@ -1314,8 +1383,9 @@ final class DiaryAppStore {
 
     private func persist(_ snapshot: DiaryGameState, now: Date, generation: Int) async throws {
         try await repository.save(snapshot, now: now)
+        let savedAt = await repository.lastSavedAt ?? now
         if stateGeneration == generation {
-            lastPersistedAt = now
+            lastPersistedAt = savedAt
         }
     }
 

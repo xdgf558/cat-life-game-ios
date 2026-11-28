@@ -128,6 +128,9 @@ struct DiaryRootView: View {
                 MilestoneOverlayView(milestone: milestone, daysTogether: store.daysTogether) {
                     store.dismissMilestoneModal()
                 }
+                .onAppear {
+                    store.markMilestonePresented(milestone)
+                }
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 .zIndex(21)
             } else if let photoID = store.currentPhotoModalID {
